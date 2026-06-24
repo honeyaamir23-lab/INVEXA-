@@ -1,4 +1,5 @@
 import { Item, StockMove, LocalUser } from "./types";
+import { createClient } from "@supabase/supabase-js";
 
 /**
  * INVEXA Enterprise Database Service
@@ -16,6 +17,7 @@ import { Item, StockMove, LocalUser } from "./types";
 
 class DatabaseService {
   private hasSupabaseKeys: boolean = false;
+  private supabaseClient: any = null;
 
   constructor() {
     // Check for client-side Supabase credentials
@@ -24,7 +26,12 @@ class DatabaseService {
 
     if (supabaseUrl && supabaseKey) {
       this.hasSupabaseKeys = true;
-      console.log("Supabase configuration detected. Ready for table mapping.");
+      try {
+        this.supabaseClient = createClient(supabaseUrl, supabaseKey);
+        console.log("Supabase configuration detected. Ready for table mapping.");
+      } catch (e) {
+        console.error("Failed to initialize Supabase client:", e);
+      }
     } else {
       console.log("No Supabase configuration detected. Operating in Enterprise LocalStorage Fallback Mode.");
     }
@@ -80,13 +87,49 @@ class DatabaseService {
    * Get list of all registered workspaces/users
    */
   public async getUsersList(): Promise<LocalUser[]> {
-    try {
-      const saved = localStorage.getItem("invexa_users_list");
-      return saved ? JSON.parse(saved) : [];
-    } catch (error) {
-      console.error("Failed to parse users list from store:", error);
-      return [];
+    const localSaved = localStorage.getItem("invexa_users_list");
+    let localList: LocalUser[] = localSaved ? JSON.parse(localSaved) : [];
+
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
+      return localList;
     }
+
+    try {
+      // Synchronize registered workspaces globally across all live deployment platforms!
+      const { data, error } = await this.supabaseClient
+        .from("store_users")
+        .select("*");
+
+      if (error) {
+        console.warn("Supabase 'store_users' sync inactive (or table doesn't exist yet):", error.message);
+        return localList;
+      }
+
+      if (data && data.length > 0) {
+        const cloudUsers: LocalUser[] = data.map((row: any) => ({
+          uid: row.uid || row.id || "",
+          email: row.email || "",
+          ownerName: row.ownerName || row.owner_name || "",
+          phone: row.phone || "",
+          storeName: row.storeName || row.store_name || "",
+          businessType: row.businessType || row.business_type || "",
+          pinCode: row.pinCode || row.pin_code || ""
+        }));
+
+        // Merge keeping the newest cloud configurations primary
+        const mergedMap = new Map<string, LocalUser>();
+        localList.forEach((u) => mergedMap.set(u.phone.trim(), u));
+        cloudUsers.forEach((u) => mergedMap.set(u.phone.trim(), u));
+
+        const mergedList = Array.from(mergedMap.values());
+        localStorage.setItem("invexa_users_list", JSON.stringify(mergedList));
+        return mergedList;
+      }
+    } catch (err) {
+      console.warn("Could not sync with cloud store_users table, using local cache:", err);
+    }
+
+    return localList;
   }
 
   /**
@@ -98,6 +141,34 @@ class DatabaseService {
       const updatedList = [...list.filter((u) => u.phone.trim() !== user.phone.trim()), user];
       localStorage.setItem("invexa_users_list", JSON.stringify(updatedList));
       localStorage.setItem("store_user", JSON.stringify(user));
+
+      // Attempt to replicate registration to Supabase cloud to enable multi-device logins
+      if (this.hasSupabaseKeys && this.supabaseClient) {
+        const row = {
+          uid: user.uid,
+          id: user.uid,
+          email: user.email,
+          ownerName: user.ownerName,
+          owner_name: user.ownerName,
+          phone: user.phone,
+          storeName: user.storeName,
+          store_name: user.storeName,
+          businessType: user.businessType,
+          business_type: user.businessType,
+          pinCode: user.pinCode,
+          pin_code: user.pinCode
+        };
+
+        const { error } = await this.supabaseClient
+          .from("store_users")
+          .insert([row]);
+
+        if (error) {
+          console.warn("Supabase 'store_users' insert error (table may not exist yet):", error.message);
+        } else {
+          console.log("Successfully replicated registration to Supabase cloud table 'store_users'.");
+        }
+      }
     } catch (error) {
       console.error("Failed to save workspace user:", error);
     }
@@ -207,6 +278,56 @@ class DatabaseService {
       localStorage.setItem(`store_categories_${userId}`, JSON.stringify(categories));
     } catch (error) {
       console.error("Failed to write categories to storage:", error);
+    }
+  }
+
+  /**
+   * Insert a single item directly into Supabase 'inventory' table.
+   * Returns true on success, false on failure (for local fallback trigger).
+   */
+  public async addInventoryItem(item: Item): Promise<boolean> {
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
+      return false;
+    }
+    try {
+      // Map properties both in camelCase and snake_case to match user's custom columns
+      const row = {
+        id: item.id,
+        name: item.name,
+        qty: item.qty,
+        unit: item.unit,
+        minQty: item.minQty,
+        min_qty: item.minQty,
+        reorderQty: item.reorderQty,
+        reorder_qty: item.reorderQty,
+        price: item.price,
+        costPrice: item.costPrice,
+        cost_price: item.costPrice,
+        category: item.category,
+        supplier: item.supplier,
+        brand: item.brand,
+        location: item.location,
+        sku: item.sku,
+        expiryDate: item.expiryDate,
+        expiry_date: item.expiryDate,
+        userId: item.userId,
+        user_id: item.userId,
+        createdAt: item.createdAt,
+        created_at: item.createdAt
+      };
+
+      const { error } = await this.supabaseClient
+        .from("inventory")
+        .insert([row]);
+
+      if (error) {
+        console.error("Supabase API error inserting to 'inventory' table:", error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error("Connection or insertion failure in Supabase 'inventory' table:", err);
+      return false;
     }
   }
 }

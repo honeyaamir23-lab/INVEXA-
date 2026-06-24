@@ -1,6 +1,7 @@
+import React, { useState } from "react";
 import { Item, StockMove } from "../types";
-import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings } from "lucide-react";
-import { motion } from "motion/react";
+import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 
 interface DashboardProps {
   items: Item[];
@@ -305,8 +306,6 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
           </div>
         </div>
       </div>
-
-
     </div>
   );
 }

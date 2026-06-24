@@ -147,7 +147,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#0A192F] flex items-center justify-center p-4 md:p-8 select-none overflow-y-auto font-sans">
+    <div className="min-h-screen w-full bg-[#0A192F] flex items-center justify-center p-0 sm:p-4 md:p-8 select-none overflow-y-auto font-sans">
       {/* Dynamic Notifications */}
       <AnimatePresence>
         {toast && (
@@ -163,7 +163,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         )}
       </AnimatePresence>
 
-      <div className="w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[620px]">
+      <div className="w-full h-full sm:h-auto max-w-5xl bg-white rounded-none sm:rounded-3xl shadow-none sm:shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-screen sm:min-h-[620px]">
         
         {/* LEFT COLUMN: Beautiful, Authoritative English Trust Showcase (Enterprise Branding) */}
         <div className="lg:col-span-6 bg-[#0B1528] text-slate-100 p-8 flex flex-col justify-between relative overflow-hidden border-b lg:border-b-0 lg:border-r border-slate-800">

@@ -160,12 +160,12 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
         whileHover={{ scale: 1.08 }}
         whileTap={{ scale: 0.92 }}
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-20 right-5 h-10 w-10 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded-full flex items-center justify-center shadow-2xl transition z-50 cursor-pointer border-2 border-white"
+        className="fixed bottom-[84px] right-5 h-12 w-12 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded-full flex items-center justify-center shadow-2xl transition z-50 cursor-pointer border-2 border-white"
         title="Ask Gemini Assistant"
       >
-        {isOpen ? <X size={18} /> : <MessageCircle size={20} className="fill-white/10" />}
+        {isOpen ? <X size={20} /> : <MessageCircle size={22} className="fill-white/10" />}
         {!isOpen && (
-          <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 bg-amber-500 rounded-full flex items-center justify-center text-[6px] text-white font-extrabold animate-pulse border border-white">
+          <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-amber-500 rounded-full flex items-center justify-center text-[7px] text-white font-extrabold animate-pulse border border-white">
             AI
           </span>
         )}
@@ -180,7 +180,7 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
             initial={{ opacity: 0, y: 30, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 30, scale: 0.95 }}
-            className="fixed bottom-36 right-5 left-5 md:left-auto md:w-[330px] bg-white overflow-hidden rounded-2xl shadow-2xl border border-slate-200 h-[410px] flex flex-col z-50"
+            className="fixed bottom-[148px] right-5 left-5 md:left-auto md:w-[330px] bg-white overflow-hidden rounded-2xl shadow-2xl border border-slate-200 h-[410px] flex flex-col z-50"
           >
             {/* Header resembles premium assistant look */}
             <div className="p-3 bg-slate-900 text-white flex justify-between items-center shrink-0">

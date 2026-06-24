@@ -96,6 +96,20 @@ export default function App() {
       userId: user.uid,
       createdAt: new Date().toISOString(),
     };
+
+    try {
+      // Attempt to save directly to Supabase cloud database
+      const success = await dbService.addInventoryItem(newItem);
+      if (success) {
+        console.log("Successfully stored item in Supabase 'inventory' table.");
+      } else {
+        console.warn("Supabase insert returned false. Saving to secure local browser storage fallback.");
+      }
+    } catch (err) {
+      console.error("Supabase connection failed. Saving to secure local browser storage fallback:", err);
+    }
+
+    // Always update local React state (which syncs to localStorage) for resilient offline availability
     setItems((prev) => [...prev, newItem]);
   };
 
@@ -278,13 +292,6 @@ export default function App() {
               </AnimatePresence>
             </main>
 
-            {/* Interactive Gemini Chat Assistant (Float) */}
-            {activeTab === "dashboard" && (
-              <div className="print:hidden">
-                <ChatBot items={items} moves={moves} />
-              </div>
-            )}
-
             {/* Sticky Bottom Navigation Tabs styled exactly for native high performance mobile phone rendering */}
             <nav className="bg-white border-t border-slate-150 shadow-lg py-3 px-4 z-40 print:hidden shrink-0">
               <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
@@ -345,6 +352,13 @@ export default function App() {
                 </button>
               </div>
             </nav>
+
+            {/* Interactive Gemini Chat Assistant (Float) */}
+            {activeTab === "dashboard" && (
+              <div className="print:hidden">
+                <ChatBot items={items} moves={moves} />
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
