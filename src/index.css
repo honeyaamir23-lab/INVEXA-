@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-primary: #111111;
+  --color-brand-accent: #16a34a; /* green alert */
+  --color-brand-warning: #f97316; /* orange alert */
+}
+
+/* Custom CSS Scrollbars and Reset */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Professional Print Styles for flawless PDF generation */
+@media print {
+  /* Hide interactive browser headers and footprints */
+  header, nav, .print\:hidden, #header-logout-btn, #nav-tab-dashboard, #nav-tab-items, #nav-tab-moves, #nav-tab-reports {
+    display: none !important;
+  }
+  
+  /* Reset container layout and heights to allow flawless multi-page PDF output */
+  body, html, #root, main {
+    background: white !important;
+    color: black !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Force standard margins and full width for printable sheet */
+  .print\:p-0 {
+    padding: 0 !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  /* Elevate grid layouts to single columns or clean grids for print papers */
+  .grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  @media (max-width: 640px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+  }
+
+  /* Bordered summary rows for perfect look on paper */
+  tr {
+    page-break-inside: avoid !important;
+  }
+}

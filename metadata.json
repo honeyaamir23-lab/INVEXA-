@@ -1,0 +1,6 @@
+{
+  "name": "INVEXA SMART MANAGER",
+  "description": "Professional offline-first store inventory manager featuring live analytics, stock tracking, WhatsApp order dispatch, and a smart Gemini assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
