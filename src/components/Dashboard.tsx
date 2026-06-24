@@ -69,17 +69,12 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   
   // Profile edit states
   const [editStoreName, setEditStoreName] = useState(storeTitle);
   const [editOwnerName, setEditOwnerName] = useState(ownerName);
   const [editBusinessType, setEditBusinessType] = useState(storeCat);
   const [editPin, setEditPin] = useState(pinCode);
-
-  // Backup state
-  const [backupCode, setBackupCode] = useState("");
-  const [copied, setCopied] = useState(false);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,36 +96,6 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
     await dbService.saveUserWorkspace(updatedUser);
     onUpdateUser(updatedUser);
     setIsProfileModalOpen(false);
-  };
-
-  const handleExportBackup = () => {
-    try {
-      const backupPayload = {
-        user: {
-          uid: currentUid,
-          email: currentEmail,
-          ownerName,
-          phone,
-          storeName: storeTitle,
-          businessType: storeCat,
-          pinCode,
-        },
-        items,
-        moves,
-      };
-      const code = btoa(JSON.stringify(backupPayload));
-      setBackupCode(code);
-      setIsBackupModalOpen(true);
-      setCopied(false);
-    } catch (err) {
-      console.error("Backup generation failed:", err);
-    }
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(backupCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -187,14 +152,6 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
             >
               <Settings size={12} className="text-amber-400" />
               <span>Edit Profile</span>
-            </button>
-            <button
-              onClick={handleExportBackup}
-              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-600/90 hover:bg-emerald-600 border border-emerald-500/30 text-white font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer transition shadow-md shadow-emerald-950/20"
-              title="Export complete inventory database"
-            >
-              <Database size={12} className="text-emerald-300" />
-              <span>Backup Data</span>
             </button>
           </div>
         </div>
@@ -529,78 +486,6 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
         )}
       </AnimatePresence>
 
-      {/* Backup Code Export Modal */}
-      <AnimatePresence>
-        {isBackupModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsBackupModalOpen(false)}
-              className="absolute inset-0 bg-[#0A192F]/65 backdrop-blur-xs"
-            />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative z-10 border border-slate-100 text-left"
-            >
-              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <Database className="text-emerald-600" size={18} />
-                  <h3 className="font-display font-black text-slate-900 text-xs uppercase tracking-wider">
-                    Export Business Backup Code
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setIsBackupModalOpen(false)}
-                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-full cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-emerald-800 text-[10px] font-semibold leading-relaxed">
-                  🚀 <strong>Instant Sync & Migration Code Ready!</strong><br />
-                  Copy this code and paste it on your mobile phone or Vercel login screen to instantly restore and sync your entire profile, stock levels, and ledger reports!
-                </div>
-
-                <div className="relative">
-                  <textarea
-                    readOnly
-                    value={backupCode}
-                    className="w-full h-32 text-[10px] font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 focus:outline-none select-all resize-none leading-relaxed"
-                    onClick={(e) => (e.target as any).select()}
-                  />
-                  <button
-                    onClick={copyToClipboard}
-                    className="absolute bottom-3 right-3 p-2 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 hover:text-emerald-600 transition cursor-pointer flex items-center gap-1.5 text-[10px] font-bold"
-                  >
-                    {copied ? (
-                      <>
-                        <Check size={12} className="text-emerald-600 animate-bounce" />
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={12} />
-                        <span>Copy Code</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <p className="text-[9px] text-slate-400 leading-normal">
-                  Note: This code bundles your store settings, {items.length} inventory products, and {moves.length} ledger logs into a secure offline Base64 string. Keep it safe.
-                </p>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

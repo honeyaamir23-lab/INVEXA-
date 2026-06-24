@@ -112,78 +112,34 @@ class DatabaseService {
   // =========================================================================
 
   /**
-   * Get list of all registered workspaces/users
+   * Get list of all registered workspaces/users from the server
    */
   public async getUsersList(): Promise<LocalUser[]> {
-    const localSaved = localStorage.getItem("invexa_users_list");
-    let localList: LocalUser[] = localSaved ? JSON.parse(localSaved) : [];
-
     try {
-      // 1. Sync with server database first
       const serverUsers = await this.serverFetch("/api/db/users");
       if (serverUsers && Array.isArray(serverUsers)) {
-        const mergedMap = new Map<string, LocalUser>();
-        localList.forEach((u) => mergedMap.set(u.phone.trim(), u));
-        serverUsers.forEach((u: any) => {
-          if (u && u.phone) {
-            mergedMap.set(u.phone.trim(), {
-              uid: u.uid || u.id || "",
-              email: u.email || "",
-              ownerName: u.ownerName || "",
-              phone: u.phone || "",
-              storeName: u.storeName || "",
-              businessType: u.businessType || "",
-              pinCode: u.pinCode || ""
-            });
-          }
-        });
-        localList = Array.from(mergedMap.values());
-        localStorage.setItem("invexa_users_list", JSON.stringify(localList));
+        return serverUsers.map((u: any) => ({
+          uid: u.uid || u.id || "",
+          email: u.email || "",
+          ownerName: u.ownerName || "",
+          phone: u.phone || "",
+          storeName: u.storeName || "",
+          businessType: u.businessType || "",
+          pinCode: u.pinCode || ""
+        }));
       }
     } catch (e) {
-      console.warn("Server user sync failed, using local/Supabase cache.");
+      console.warn("Server user fetch failed, offline or server unreachable.");
     }
 
-    if (!this.hasSupabaseKeys || !this.supabaseClient) {
-      return localList;
+    // Fallback to currently logged-in user in localStorage if server is offline
+    const saved = localStorage.getItem("store_user");
+    if (saved) {
+      try {
+        return [JSON.parse(saved)];
+      } catch (e) {}
     }
-
-    try {
-      // Synchronize registered workspaces globally across all live deployment platforms!
-      const { data, error } = await this.supabaseClient
-        .from("store_users")
-        .select("*");
-
-      if (error) {
-        console.warn("Supabase 'store_users' sync inactive (or table doesn't exist yet):", error.message);
-        return localList;
-      }
-
-      if (data && data.length > 0) {
-        const cloudUsers: LocalUser[] = data.map((row: any) => ({
-          uid: row.uid || row.id || "",
-          email: row.email || "",
-          ownerName: row.ownerName || row.owner_name || "",
-          phone: row.phone || "",
-          storeName: row.storeName || row.store_name || "",
-          businessType: row.businessType || row.business_type || "",
-          pinCode: row.pinCode || row.pin_code || ""
-        }));
-
-        // Merge keeping the newest cloud configurations primary
-        const mergedMap = new Map<string, LocalUser>();
-        localList.forEach((u) => mergedMap.set(u.phone.trim(), u));
-        cloudUsers.forEach((u) => mergedMap.set(u.phone.trim(), u));
-
-        const mergedList = Array.from(mergedMap.values());
-        localStorage.setItem("invexa_users_list", JSON.stringify(mergedList));
-        return mergedList;
-      }
-    } catch (err) {
-      console.warn("Could not sync with cloud store_users table, using local cache:", err);
-    }
-
-    return localList;
+    return [];
   }
 
   /**
@@ -191,46 +147,16 @@ class DatabaseService {
    */
   public async saveUserWorkspace(user: LocalUser): Promise<void> {
     try {
-      const list = await this.getUsersList();
-      const updatedList = [...list.filter((u) => u.phone.trim() !== user.phone.trim()), user];
-      localStorage.setItem("invexa_users_list", JSON.stringify(updatedList));
+      // Store current user session in local device
       localStorage.setItem("store_user", JSON.stringify(user));
 
-      // Replicate to Node Server Database
+      // Persist to Server Central Database
       await this.serverFetch("/api/db/users", {
         method: "POST",
         body: JSON.stringify(user)
       });
-
-      // Attempt to replicate registration to Supabase cloud to enable multi-device logins
-      if (this.hasSupabaseKeys && this.supabaseClient) {
-        const row = {
-          uid: user.uid,
-          id: user.uid,
-          email: user.email,
-          ownerName: user.ownerName,
-          owner_name: user.ownerName,
-          phone: user.phone,
-          storeName: user.storeName,
-          store_name: user.storeName,
-          businessType: user.businessType,
-          business_type: user.businessType,
-          pinCode: user.pinCode,
-          pin_code: user.pinCode
-        };
-
-        const { error } = await this.supabaseClient
-          .from("store_users")
-          .insert([row]);
-
-        if (error) {
-          console.warn("Supabase 'store_users' insert error (table may not exist yet):", error.message);
-        } else {
-          console.log("Successfully replicated registration to Supabase cloud table 'store_users'.");
-        }
-      }
     } catch (error) {
-      console.error("Failed to save workspace user:", error);
+      console.error("Failed to save workspace user on server:", error);
     }
   }
 
@@ -241,37 +167,7 @@ class DatabaseService {
     const cleanPhone = phone.trim();
     const cleanPin = pin.trim();
 
-    // 1. True Cloud Authentication: Query Supabase directly if available
-    if (this.hasSupabaseKeys && this.supabaseClient) {
-      try {
-        const { data, error } = await this.supabaseClient
-          .from("store_users")
-          .select("*")
-          .eq("phone", cleanPhone);
-
-        if (!error && data && data.length > 0) {
-          const row = data[0];
-          const userPin = (row.pinCode || row.pin_code || "").toString().trim();
-          if (userPin === cleanPin) {
-            const user: LocalUser = {
-              uid: row.uid || row.id || "",
-              email: row.email || "",
-              ownerName: row.ownerName || row.owner_name || "",
-              phone: row.phone || "",
-              storeName: row.storeName || row.store_name || "",
-              businessType: row.businessType || row.business_type || "",
-              pinCode: userPin
-            };
-            localStorage.setItem("store_user", JSON.stringify(user));
-            return user;
-          }
-        }
-      } catch (err) {
-        console.warn("Supabase direct authentication query failed, falling back to server:", err);
-      }
-    }
-
-    // 2. Direct query fallback: Central Node Server
+    // Direct central server database lookup
     try {
       const serverUsers = await this.serverFetch("/api/db/users");
       if (serverUsers && Array.isArray(serverUsers)) {
@@ -299,15 +195,17 @@ class DatabaseService {
       console.warn("Server direct auth lookup failed:", e);
     }
 
-    // 3. Fallback: Check merged local storage cache
-    const list = await this.getUsersList();
-    const found = list.find(
-      (u) => u.phone.trim() === cleanPhone && u.pinCode.trim() === cleanPin
-    );
-    if (found) {
-      localStorage.setItem("store_user", JSON.stringify(found));
-      return found;
+    // Offline mode: allow logging back into the currently logged-in profile if already cached
+    const saved = localStorage.getItem("store_user");
+    if (saved) {
+      try {
+        const cachedUser: LocalUser = JSON.parse(saved);
+        if (cachedUser.phone.trim() === cleanPhone && cachedUser.pinCode.trim() === cleanPin) {
+          return cachedUser;
+        }
+      } catch (e) {}
     }
+
     return null;
   }
 
