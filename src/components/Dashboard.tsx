@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Item, StockMove } from "../types";
-import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X, User as UserIcon, Calendar, Briefcase } from "lucide-react";
+import { Item, StockMove, LocalUser } from "../types";
+import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X, User as UserIcon, Calendar, Briefcase, Check, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { dbService } from "../db";
 
 interface DashboardProps {
   items: Item[];
@@ -10,9 +11,10 @@ interface DashboardProps {
   onEditItem: (item: Item) => void;
   isDbConnected: boolean;
   onLogout: () => void;
+  onUpdateUser: (updatedUser: LocalUser) => void;
 }
 
-export default function Dashboard({ items, moves, onNavigateToTab, onEditItem, isDbConnected, onLogout }: DashboardProps) {
+export default function Dashboard({ items, moves, onNavigateToTab, onEditItem, isDbConnected, onLogout, onUpdateUser }: DashboardProps) {
   // Calculations
   const stats = {
     totalItems: items.length,
@@ -48,6 +50,10 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
   let storeCat = "Enterprise Workspace";
   let ownerName = "Manager";
   let phone = "";
+  let pinCode = "";
+  let currentUid = "";
+  let currentEmail = "";
+
   if (rawUser) {
     try {
       const parsed = JSON.parse(rawUser);
@@ -55,8 +61,77 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
       storeCat = parsed.businessType || storeCat;
       ownerName = parsed.ownerName || ownerName;
       phone = parsed.phone || phone;
+      pinCode = parsed.pinCode || parsed.pin_code || "";
+      currentUid = parsed.uid || "";
+      currentEmail = parsed.email || "";
     } catch(e) {}
   }
+
+  // Modals state
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  
+  // Profile edit states
+  const [editStoreName, setEditStoreName] = useState(storeTitle);
+  const [editOwnerName, setEditOwnerName] = useState(ownerName);
+  const [editBusinessType, setEditBusinessType] = useState(storeCat);
+  const [editPin, setEditPin] = useState(pinCode);
+
+  // Backup state
+  const [backupCode, setBackupCode] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editStoreName.trim() || !editOwnerName.trim() || editPin.length !== 4) {
+      return;
+    }
+
+    const updatedUser: LocalUser = {
+      uid: currentUid || "saas-user-" + Math.random().toString(36).substring(2, 9),
+      email: currentEmail || `${phone}@invexa.com`,
+      ownerName: editOwnerName.trim(),
+      phone: phone,
+      storeName: editStoreName.trim(),
+      businessType: editBusinessType,
+      pinCode: editPin,
+    };
+
+    // Save globally and locally
+    await dbService.saveUserWorkspace(updatedUser);
+    onUpdateUser(updatedUser);
+    setIsProfileModalOpen(false);
+  };
+
+  const handleExportBackup = () => {
+    try {
+      const backupPayload = {
+        user: {
+          uid: currentUid,
+          email: currentEmail,
+          ownerName,
+          phone,
+          storeName: storeTitle,
+          businessType: storeCat,
+          pinCode,
+        },
+        items,
+        moves,
+      };
+      const code = btoa(JSON.stringify(backupPayload));
+      setBackupCode(code);
+      setIsBackupModalOpen(true);
+      setCopied(false);
+    } catch (err) {
+      console.error("Backup generation failed:", err);
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(backupCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto pb-8 text-left">
@@ -70,35 +145,57 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
         <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500 rounded-full filter blur-[110px] opacity-25 animate-pulse" />
         <div className="absolute bottom-0 left-0 w-36 h-36 bg-amber-500 rounded-full filter blur-[90px] opacity-15" />
 
-        <div className="flex items-center gap-4 relative z-10 w-full">
-          {/* Branded Icon Container */}
-          <div className="h-14 w-14 bg-gradient-to-tr from-amber-400 to-amber-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-amber-500/10 border border-white/10 shrink-0 relative">
-            <span>🏬</span>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10 w-full">
+          <div className="flex items-center gap-4">
+            {/* Branded Icon Container */}
+            <div className="h-14 w-14 bg-gradient-to-tr from-amber-400 to-amber-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-amber-500/10 border border-white/10 shrink-0 relative">
+              <span>🏬</span>
+            </div>
+
+            <div className="space-y-1 min-w-0">
+              <h1 className="text-xl md:text-2xl font-black font-display tracking-tight leading-tight text-white flex items-center gap-2">
+                <span className="truncate">{storeTitle}</span>
+                <span className="text-emerald-400 text-sm md:text-base">✨</span>
+              </h1>
+
+              {/* Premium Meta Information Grid */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
+                <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
+                  <Briefcase size={11} className="text-emerald-400" />
+                  <span>{storeCat}</span>
+                </span>
+                <span className="text-slate-600 text-xs hidden sm:inline">•</span>
+                <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
+                  <UserIcon size={11} className="text-amber-400" />
+                  <span>{ownerName}</span>
+                </span>
+                <span className="text-slate-600 text-xs hidden sm:inline">•</span>
+                <span className="flex items-center gap-1.5 text-slate-400 text-[10px] font-medium font-mono">
+                  <Calendar size={11} className="text-slate-500" />
+                  <span>{formattedDateEn}</span>
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-1 flex-1 min-w-0">
-            <h1 className="text-xl md:text-2xl font-black font-display tracking-tight leading-tight text-white flex items-center gap-2">
-              <span className="truncate">{storeTitle}</span>
-              <span className="text-emerald-400 text-sm md:text-base">✨</span>
-            </h1>
-
-            {/* Premium Meta Information Grid */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
-              <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
-                <Briefcase size={11} className="text-emerald-400" />
-                <span>{storeCat}</span>
-              </span>
-              <span className="text-slate-600 text-xs hidden sm:inline">•</span>
-              <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
-                <UserIcon size={11} className="text-amber-400" />
-                <span>{ownerName}</span>
-              </span>
-              <span className="text-slate-600 text-xs hidden sm:inline">•</span>
-              <span className="flex items-center gap-1.5 text-slate-400 text-[10px] font-medium font-mono">
-                <Calendar size={11} className="text-slate-500" />
-                <span>{formattedDateEn}</span>
-              </span>
-            </div>
+          {/* Premium Quick Utilities Panel */}
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0 pt-2 md:pt-0">
+            <button
+              onClick={() => setIsProfileModalOpen(true)}
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-white/10 hover:bg-white/15 border border-white/10 text-white font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer transition shadow-md"
+              title="Edit Store Profile Details"
+            >
+              <Settings size={12} className="text-amber-400" />
+              <span>Edit Profile</span>
+            </button>
+            <button
+              onClick={handleExportBackup}
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-600/90 hover:bg-emerald-600 border border-emerald-500/30 text-white font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer transition shadow-md shadow-emerald-950/20"
+              title="Export complete inventory database"
+            >
+              <Database size={12} className="text-emerald-300" />
+              <span>Backup Data</span>
+            </button>
           </div>
         </div>
       </motion.div>
@@ -323,6 +420,187 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
           </div>
         </div>
       </div>
+
+      {/* Edit Profile Modal */}
+      <AnimatePresence>
+        {isProfileModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsProfileModalOpen(false)}
+              className="absolute inset-0 bg-[#0A192F]/65 backdrop-blur-xs"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative z-10 border border-slate-100 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="text-[#0A192F]" size={18} />
+                  <h3 className="font-display font-black text-slate-900 text-xs uppercase tracking-wider">
+                    Edit Business Profile
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setIsProfileModalOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-full cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveProfile} className="space-y-4">
+                <div>
+                  <label className="block text-slate-500 text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                    Store / Business Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editStoreName}
+                    onChange={(e) => setEditStoreName(e.target.value)}
+                    required
+                    className="w-full h-11 px-4 text-xs bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-[#0A192F]/10 focus:border-[#0A192F] rounded-xl duration-150 text-slate-900 focus:outline-none font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-500 text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                    Owner Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editOwnerName}
+                    onChange={(e) => setEditOwnerName(e.target.value)}
+                    required
+                    className="w-full h-11 px-4 text-xs bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-[#0A192F]/10 focus:border-[#0A192F] rounded-xl duration-150 text-slate-900 focus:outline-none font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-500 text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                    Business Type
+                  </label>
+                  <select
+                    value={editBusinessType}
+                    onChange={(e) => setEditBusinessType(e.target.value)}
+                    className="w-full h-11 px-4 text-xs bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-[#0A192F]/10 focus:border-[#0A192F] rounded-xl duration-150 text-slate-900 focus:outline-none font-bold"
+                  >
+                    <option value="Wholesaler">Wholesaler / Trader</option>
+                    <option value="Factory">Factory / Manufacturer</option>
+                    <option value="Retailer">Retailer / Shop</option>
+                    <option value="Supermarket">Supermarket / Mart</option>
+                    <option value="Cafe">Hotel / Cafe</option>
+                    <option value="Other">Other Business</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-500 text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                    4-Digit Secure PIN
+                  </label>
+                  <input
+                    type="password"
+                    pattern="[0-9]*"
+                    inputMode="numeric"
+                    value={editPin}
+                    onChange={(e) => setEditPin(e.target.value.replace(/\D/g, ""))}
+                    maxLength={4}
+                    required
+                    className="w-full h-11 text-center text-sm tracking-[0.5em] bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-[#0A192F]/10 focus:border-[#0A192F] rounded-xl duration-150 text-slate-900 focus:outline-none font-black font-mono"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    className="w-full h-11 bg-[#0A192F] hover:bg-[#112240] text-amber-400 font-extrabold rounded-xl duration-200 shadow-md cursor-pointer text-[11px] uppercase tracking-wider border border-amber-400/10"
+                  >
+                    Save & Sync Changes
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Backup Code Export Modal */}
+      <AnimatePresence>
+        {isBackupModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsBackupModalOpen(false)}
+              className="absolute inset-0 bg-[#0A192F]/65 backdrop-blur-xs"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative z-10 border border-slate-100 text-left"
+            >
+              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Database className="text-emerald-600" size={18} />
+                  <h3 className="font-display font-black text-slate-900 text-xs uppercase tracking-wider">
+                    Export Business Backup Code
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setIsBackupModalOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-full cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-emerald-800 text-[10px] font-semibold leading-relaxed">
+                  🚀 <strong>Instant Sync & Migration Code Ready!</strong><br />
+                  Copy this code and paste it on your mobile phone or Vercel login screen to instantly restore and sync your entire profile, stock levels, and ledger reports!
+                </div>
+
+                <div className="relative">
+                  <textarea
+                    readOnly
+                    value={backupCode}
+                    className="w-full h-32 text-[10px] font-mono p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 focus:outline-none select-all resize-none leading-relaxed"
+                    onClick={(e) => (e.target as any).select()}
+                  />
+                  <button
+                    onClick={copyToClipboard}
+                    className="absolute bottom-3 right-3 p-2 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600 hover:text-emerald-600 transition cursor-pointer flex items-center gap-1.5 text-[10px] font-bold"
+                  >
+                    {copied ? (
+                      <>
+                        <Check size={12} className="text-emerald-600 animate-bounce" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>Copy Code</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <p className="text-[9px] text-slate-400 leading-normal">
+                  Note: This code bundles your store settings, {items.length} inventory products, and {moves.length} ledger logs into a secure offline Base64 string. Keep it safe.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

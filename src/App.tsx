@@ -287,6 +287,7 @@ export default function App() {
                       onEditItem={triggerEditItemFromDashboard}
                       isDbConnected={isDbConnected}
                       onLogout={handleLogout}
+                      onUpdateUser={setUser}
                     />
                   )}
                   {activeTab === "items" && (

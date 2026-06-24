@@ -11,7 +11,11 @@ import {
   Star, 
   Award, 
   Users, 
-  Zap
+  Zap,
+  Database,
+  Upload,
+  X,
+  Check
 } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import { LocalUser } from "../types";
@@ -38,6 +42,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
+  // Restore Backup & Auto-Register States
+  const [isRestoreOpen, setIsRestoreOpen] = useState(false);
+  const [backupCodeInput, setBackupCodeInput] = useState("");
+  const [showAutoRegisterHelper, setShowAutoRegisterHelper] = useState(false);
+
   // Auto clear toast
   useEffect(() => {
     if (toast) {
@@ -51,11 +60,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   // Clear errors when switching modes
   useEffect(() => {
     setError(null);
+    setShowAutoRegisterHelper(false);
   }, [mode]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setShowAutoRegisterHelper(false);
 
     const cleanPhone = phone.trim();
     const cleanPin = pin.trim();
@@ -88,7 +99,16 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               setLoading(false);
             }, 800);
           } else {
-            setError("Invalid WhatsApp number or security PIN. Please try again.");
+            // Check if user exists on the backend server
+            const list = await dbService.getUsersList();
+            const phoneExists = list.some((u) => u.phone.trim() === cleanPhone);
+
+            if (phoneExists) {
+              setError("Incorrect Security PIN. Please verify your 4-digit code.");
+            } else {
+              setShowAutoRegisterHelper(true);
+              setError("This number is not registered yet. Would you like to activate a local workspace below?");
+            }
             setLoading(false);
           }
         } else {
@@ -142,6 +162,87 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         setLoading(false);
       }
     }, 400);
+  };
+
+  const handleRestoreBackup = async () => {
+    setError(null);
+    if (!backupCodeInput.trim()) {
+      setError("Please paste your Backup Code first.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const decodedString = atob(backupCodeInput.trim());
+      const backupData = JSON.parse(decodedString);
+
+      if (!backupData.user || !backupData.user.phone) {
+        throw new Error("Invalid backup format.");
+      }
+
+      const restoredUser: LocalUser = backupData.user;
+      const restoredItems = backupData.items || [];
+      const restoredMoves = backupData.moves || [];
+
+      // Ensure pinCode is set
+      if (!restoredUser.pinCode) {
+        restoredUser.pinCode = "1234";
+      }
+
+      // Save to localStorage
+      localStorage.setItem("store_user", JSON.stringify(restoredUser));
+      localStorage.setItem(`store_items_${restoredUser.uid}`, JSON.stringify(restoredItems));
+      localStorage.setItem(`store_moves_${restoredUser.uid}`, JSON.stringify(restoredMoves));
+
+      // Replicate to server database
+      await dbService.saveUserWorkspace(restoredUser);
+      await dbService.saveItems(restoredUser.uid, restoredItems);
+      await dbService.saveStockMoves(restoredUser.uid, restoredMoves);
+
+      setToast({ message: "Backup Restored & Synchronized Successfully!", type: "success" });
+      setTimeout(() => {
+        onLoginSuccess(restoredUser);
+        setLoading(false);
+      }, 1000);
+    } catch (e) {
+      console.error(e);
+      setError("Invalid Backup Code. Please verify you copied the entire backup string.");
+      setLoading(false);
+    }
+  };
+
+  const handleAutoRegister = async () => {
+    setLoading(true);
+    setError(null);
+    setShowAutoRegisterHelper(false);
+
+    try {
+      const cleanPhone = phone.trim();
+      const cleanPin = pin.trim() || "1234";
+
+      const newUser: LocalUser = {
+        uid: "saas-user-" + Math.random().toString(36).substring(2, 9),
+        email: `${cleanPhone}@invexa.com`,
+        ownerName: "Waleed",
+        phone: cleanPhone,
+        storeName: "WALEED FOODS 🍎",
+        businessType: "Factory",
+        pinCode: cleanPin,
+      };
+
+      await dbService.saveUserWorkspace(newUser);
+      await dbService.saveItems(newUser.uid, []);
+      await dbService.saveStockMoves(newUser.uid, []);
+
+      setToast({ message: "Enterprise Workspace Activated Successfully!", type: "success" });
+      setTimeout(() => {
+        onLoginSuccess(newUser);
+        setLoading(false);
+      }, 1000);
+    } catch (err) {
+      setError("Failed to auto-register. Please try manually signing up.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -469,13 +570,77 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     : "CREATE BUSINESS ACCOUNT"}
               </span>
             </button>
+
+            {/* Smart Auto-Register Helper */}
+            <AnimatePresence>
+              {showAutoRegisterHelper && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-left space-y-3 mt-3"
+                >
+                  <div className="flex items-start gap-2 text-[10.5px] text-amber-800 font-bold leading-relaxed">
+                    <span className="mt-0.5">💡</span>
+                    <span>No active workspace found on the cloud for <strong>{phone}</strong> yet. Would you like to instantly activate a secure workspace for this number on this device?</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAutoRegister}
+                    className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-sm transition duration-150"
+                  >
+                    Yes, Activate Secure Workspace
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </form>
 
           {/* Prompt info */}
-          <div className="mt-6 border-t border-slate-100 pt-4 text-center">
+          <div className="mt-5 border-t border-slate-100 pt-4 text-center">
             <span className="text-[10px] text-slate-400 block tracking-wide">
               Equipped with state-of-the-art storage and security. Your business records remain private and secure on this device.
             </span>
+          </div>
+
+          {/* Restore Backup Panel */}
+          <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setIsRestoreOpen(!isRestoreOpen)}
+              className="text-[10px] font-extrabold text-slate-500 hover:text-[#0A192F] flex items-center gap-1.5 cursor-pointer bg-slate-50 hover:bg-slate-100 px-3.5 py-2 rounded-xl transition"
+            >
+              <Database size={12} className="text-[#0A192F]" />
+              <span>Restore Cloud Backup Code</span>
+            </button>
+
+            <AnimatePresence>
+              {isRestoreOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="w-full mt-3.5 space-y-3 overflow-hidden text-left"
+                >
+                  <label className="block text-slate-700 text-[10px] font-extrabold uppercase tracking-wider">
+                    Paste Base64 Backup Code
+                  </label>
+                  <textarea
+                    value={backupCodeInput}
+                    onChange={(e) => setBackupCodeInput(e.target.value)}
+                    placeholder="Paste the Base64 backup string you exported earlier..."
+                    className="w-full h-20 text-[9px] font-mono px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-[#0A192F]/10 focus:border-[#0A192F] rounded-xl duration-150 text-slate-700 focus:outline-none resize-none leading-relaxed select-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRestoreBackup}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-sm transition duration-150"
+                  >
+                    Load & Sync Backup
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
         </div>
