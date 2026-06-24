@@ -65,12 +65,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     const cleanPin = pin.trim();
 
     if (!cleanPhone) {
-      setError("موبائل نمبر درج کرنا لازمی ہے! (WhatsApp / Mobile Number is strictly required.)");
+      setError("WhatsApp / Mobile Number is strictly required.");
       return;
     }
 
     if (cleanPin.length !== 4) {
-      setError("پن کوڈ 4 ہندسوں کا ہونا چاہیے! (Security PIN must be exactly 4 digits.)");
+      setError("Security PIN must be exactly 4 digits.");
       return;
     }
 
@@ -85,7 +85,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           const foundUser = await dbService.authenticateWorkspace(cleanPhone, cleanPin);
           
           if (foundUser) {
-            setToast({ message: "خوش آمدید! آپ کا لاگ ان کامیاب رہا۔ (Welcome back! Access Granted!)", type: "success" });
+            setToast({ message: "Welcome back! Access Granted!", type: "success" });
             localStorage.setItem("store_user", JSON.stringify(foundUser));
             setTimeout(() => {
               onLoginSuccess(foundUser);
@@ -97,9 +97,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             const phoneExists = list.some((u) => u.phone.trim() === cleanPhone);
 
             if (phoneExists) {
-              setError("موبائل پن کوڈ غلط ہے! براہ کرم درست 4 ہندسوں کا پن کوڈ درج کریں۔ \n(Incorrect Security PIN. Please verify your 4-digit PIN.)");
+              setError("Incorrect Security PIN. Please verify your 4-digit PIN.");
             } else {
-              setError("یہ موبائل نمبر رجسٹرڈ نہیں ہے! لاگ ان کرنے کے لیے پہلے اکاؤنٹ بنانا لازمی ہے۔ \n(This mobile number is not registered! Please sign up to create an account first.)");
+              setError("This mobile number is not registered! Please sign up to create an account first.");
             }
             setLoading(false);
           }
@@ -109,19 +109,19 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           const foundUser = list.find((u) => u.phone.trim() === cleanPhone);
 
           if (foundUser) {
-            setError("یہ موبائل نمبر پہلے ہی رجسٹرڈ ہے! براہ کرم لاگ ان کریں۔ \n(This WhatsApp number is already registered. Please login.)");
+            setError("This mobile number is already registered. Please login.");
             setLoading(false);
             return;
           }
 
           if (!ownerName.trim()) {
-            setError("مالک کا نام لازمی ہے! (Owner Name is required.)");
+            setError("Owner Name is required.");
             setLoading(false);
             return;
           }
 
           if (!storeName.trim()) {
-            setError("اسٹور یا کاروبار کا نام لازمی ہے! (Business/Store Name is required.)");
+            setError("Business/Store Name is required.");
             setLoading(false);
             return;
           }
@@ -142,7 +142,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           await dbService.saveItems(newUser.uid, []);
           await dbService.saveStockMoves(newUser.uid, []);
 
-          setToast({ message: "نیا اکاؤنٹ کامیابی سے بن گیا ہے! (Account created successfully!)", type: "success" });
+          setToast({ message: "Account created successfully!", type: "success" });
           setTimeout(() => {
             onLoginSuccess(newUser);
             setLoading(false);
@@ -150,7 +150,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         }
       } catch (err: any) {
         console.error("Authentication error:", err);
-        setError("پروسیسنگ کے دوران ایک خرابی پیش آئی ہے۔ براہ کرم دوبارہ کوشش کریں۔ \n(An error occurred while processing. Please try again.)");
+        setError("An error occurred while processing. Please try again.");
         setLoading(false);
       }
     }, 400);
