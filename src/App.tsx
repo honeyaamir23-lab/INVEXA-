@@ -19,7 +19,13 @@ import {
   BarChart3, 
   LogOut, 
   User as UserIcon,
-  Loader2 
+  Loader2,
+  Database,
+  Copy,
+  Check,
+  Upload,
+  Download,
+  X
 } from "lucide-react";
 
 const generateId = () => {
@@ -39,7 +45,14 @@ export default function App() {
       try {
         const u = JSON.parse(savedUser);
         const saved = localStorage.getItem(`store_items_${u.uid}`);
-        return saved ? JSON.parse(saved) : [];
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const filtered = parsed.filter((item: Item) => !item.id.startsWith("demo-"));
+          if (filtered.length !== parsed.length) {
+            localStorage.setItem(`store_items_${u.uid}`, JSON.stringify(filtered));
+          }
+          return filtered;
+        }
       } catch (e) {}
     }
     return [];
@@ -50,7 +63,14 @@ export default function App() {
       try {
         const u = JSON.parse(savedUser);
         const saved = localStorage.getItem(`store_moves_${u.uid}`);
-        return saved ? JSON.parse(saved) : [];
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const filtered = parsed.filter((m: StockMove) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
+          if (filtered.length !== parsed.length) {
+            localStorage.setItem(`store_moves_${u.uid}`, JSON.stringify(filtered));
+          }
+          return filtered;
+        }
       } catch (e) {}
     }
     return [];
@@ -60,6 +80,8 @@ export default function App() {
   
   // Shared edit state between dashboard / items modal
   const [activeEditItem, setActiveEditItem] = useState<Item | null>(null);
+
+
 
   // Check Supabase connection status check on startup
   useEffect(() => {
@@ -196,8 +218,10 @@ export default function App() {
               onLoginSuccess={async (loggedInUser) => {
                 const savedItems = await dbService.getItems(loggedInUser.uid);
                 const savedMoves = await dbService.getStockMoves(loggedInUser.uid);
-                setItems(savedItems);
-                setMoves(savedMoves);
+                const filteredItems = savedItems.filter((item: Item) => !item.id.startsWith("demo-"));
+                const filteredMoves = savedMoves.filter((m: StockMove) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
+                setItems(filteredItems);
+                setMoves(filteredMoves);
                 setUser(loggedInUser);
                 setActiveTab("dashboard");
               }} 
@@ -230,6 +254,8 @@ export default function App() {
                     <span className="text-slate-300">|</span>
                     <span className="truncate max-w-[120px] text-slate-500 font-mono">{user.email}</span>
                   </div>
+
+
 
                   <button
                     onClick={handleLogout}
@@ -293,62 +319,62 @@ export default function App() {
             </main>
 
             {/* Sticky Bottom Navigation Tabs styled exactly for native high performance mobile phone rendering */}
-            <nav className="bg-white border-t border-slate-150 shadow-lg py-3 px-4 z-40 print:hidden shrink-0">
-              <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
+            <nav className="bg-white border-t border-slate-100 shadow-xl py-3.5 px-4 z-40 print:hidden shrink-0">
+              <div className="max-w-md mx-auto grid grid-cols-4 gap-2">
                 {/* Dashboard */}
                 <button
                   onClick={() => setActiveTab("dashboard")}
-                  className={`flex flex-col items-center justify-center gap-1.5 py-1 px-2 rounded-2xl transition cursor-pointer ${
+                  className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "dashboard" 
-                      ? "bg-slate-900 text-white font-bold" 
-                      : "text-slate-400 hover:text-slate-800"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                   }`}
                   id="nav-tab-dashboard"
                 >
-                  <Home size={18} />
-                  <span className="text-[10px] sm:text-xs">Dashboard</span>
+                  <Home size={17} />
+                  <span className="text-[10px] font-bold tracking-tight">Dashboard</span>
                 </button>
 
                 {/* Items */}
                 <button
                   onClick={() => setActiveTab("items")}
-                  className={`flex flex-col items-center justify-center gap-1.5 py-1 px-2 rounded-2xl transition cursor-pointer ${
+                  className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "items" 
-                      ? "bg-slate-900 text-white font-bold" 
-                      : "text-slate-400 hover:text-slate-800"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                   }`}
                   id="nav-tab-items"
                 >
-                  <Package size={18} />
-                  <span className="text-[10px] sm:text-xs">Inventory</span>
+                  <Package size={17} />
+                  <span className="text-[10px] font-bold tracking-tight">Inventory</span>
                 </button>
 
                 {/* Stock Moves */}
                 <button
                   onClick={() => setActiveTab("moves")}
-                  className={`flex flex-col items-center justify-center gap-1.5 py-1 px-2 rounded-2xl transition cursor-pointer ${
+                  className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "moves" 
-                      ? "bg-slate-900 text-white font-bold" 
-                      : "text-slate-400 hover:text-slate-800"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                   }`}
                   id="nav-tab-moves"
                 >
-                  <RefreshCw size={18} />
-                  <span className="text-[10px] sm:text-xs">Ledger</span>
+                  <RefreshCw size={17} />
+                  <span className="text-[10px] font-bold tracking-tight">Ledger</span>
                 </button>
 
                 {/* Reports */}
                 <button
                   onClick={() => setActiveTab("reports")}
-                  className={`flex flex-col items-center justify-center gap-1.5 py-1 px-2 rounded-2xl transition cursor-pointer ${
+                  className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "reports" 
-                      ? "bg-slate-900 text-white font-bold" 
-                      : "text-slate-400 hover:text-slate-800"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                   }`}
                   id="nav-tab-reports"
                 >
-                  <BarChart3 size={18} />
-                  <span className="text-[10px] sm:text-xs">Reports</span>
+                  <BarChart3 size={17} />
+                  <span className="text-[10px] font-bold tracking-tight">Reports</span>
                 </button>
               </div>
             </nav>
@@ -359,6 +385,8 @@ export default function App() {
                 <ChatBot items={items} moves={moves} />
               </div>
             )}
+
+
           </motion.div>
         )}
       </AnimatePresence>

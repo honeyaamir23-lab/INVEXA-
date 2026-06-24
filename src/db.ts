@@ -19,6 +19,34 @@ class DatabaseService {
   private hasSupabaseKeys: boolean = false;
   private supabaseClient: any = null;
 
+  private getBaseUrl(): string {
+    const origin = window.location.origin;
+    if (origin.includes("localhost") || origin.includes(".run.app") || origin.includes("3000")) {
+      return "";
+    }
+    // Deep fallback to original central Cloud Run container backend
+    return "https://ais-pre-54pnig5mr3islz2e74ix2w-927601963567.asia-southeast1.run.app";
+  }
+
+  private async serverFetch(endpoint: string, options?: RequestInit): Promise<any> {
+    try {
+      const baseUrl = this.getBaseUrl();
+      const response = await fetch(`${baseUrl}${endpoint}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options?.headers || {})
+        }
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (e) {
+      console.warn(`Server endpoint ${endpoint} unreachable, defaulting to offline storage.`);
+    }
+    return null;
+  }
+
   constructor() {
     // Check for client-side Supabase credentials
     const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
@@ -90,6 +118,32 @@ class DatabaseService {
     const localSaved = localStorage.getItem("invexa_users_list");
     let localList: LocalUser[] = localSaved ? JSON.parse(localSaved) : [];
 
+    try {
+      // 1. Sync with server database first
+      const serverUsers = await this.serverFetch("/api/db/users");
+      if (serverUsers && Array.isArray(serverUsers)) {
+        const mergedMap = new Map<string, LocalUser>();
+        localList.forEach((u) => mergedMap.set(u.phone.trim(), u));
+        serverUsers.forEach((u: any) => {
+          if (u && u.phone) {
+            mergedMap.set(u.phone.trim(), {
+              uid: u.uid || u.id || "",
+              email: u.email || "",
+              ownerName: u.ownerName || "",
+              phone: u.phone || "",
+              storeName: u.storeName || "",
+              businessType: u.businessType || "",
+              pinCode: u.pinCode || ""
+            });
+          }
+        });
+        localList = Array.from(mergedMap.values());
+        localStorage.setItem("invexa_users_list", JSON.stringify(localList));
+      }
+    } catch (e) {
+      console.warn("Server user sync failed, using local/Supabase cache.");
+    }
+
     if (!this.hasSupabaseKeys || !this.supabaseClient) {
       return localList;
     }
@@ -142,6 +196,12 @@ class DatabaseService {
       localStorage.setItem("invexa_users_list", JSON.stringify(updatedList));
       localStorage.setItem("store_user", JSON.stringify(user));
 
+      // Replicate to Node Server Database
+      await this.serverFetch("/api/db/users", {
+        method: "POST",
+        body: JSON.stringify(user)
+      });
+
       // Attempt to replicate registration to Supabase cloud to enable multi-device logins
       if (this.hasSupabaseKeys && this.supabaseClient) {
         const row = {
@@ -178,9 +238,71 @@ class DatabaseService {
    * Authenticate a workspace using WhatsApp Number and Security PIN
    */
   public async authenticateWorkspace(phone: string, pin: string): Promise<LocalUser | null> {
+    const cleanPhone = phone.trim();
+    const cleanPin = pin.trim();
+
+    // 1. True Cloud Authentication: Query Supabase directly if available
+    if (this.hasSupabaseKeys && this.supabaseClient) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from("store_users")
+          .select("*")
+          .eq("phone", cleanPhone);
+
+        if (!error && data && data.length > 0) {
+          const row = data[0];
+          const userPin = (row.pinCode || row.pin_code || "").toString().trim();
+          if (userPin === cleanPin) {
+            const user: LocalUser = {
+              uid: row.uid || row.id || "",
+              email: row.email || "",
+              ownerName: row.ownerName || row.owner_name || "",
+              phone: row.phone || "",
+              storeName: row.storeName || row.store_name || "",
+              businessType: row.businessType || row.business_type || "",
+              pinCode: userPin
+            };
+            localStorage.setItem("store_user", JSON.stringify(user));
+            return user;
+          }
+        }
+      } catch (err) {
+        console.warn("Supabase direct authentication query failed, falling back to server:", err);
+      }
+    }
+
+    // 2. Direct query fallback: Central Node Server
+    try {
+      const serverUsers = await this.serverFetch("/api/db/users");
+      if (serverUsers && Array.isArray(serverUsers)) {
+        const found = serverUsers.find(
+          (u: any) => u.phone && u.phone.trim() === cleanPhone
+        );
+        if (found) {
+          const userPin = (found.pinCode || found.pin_code || found.pin || "").toString().trim();
+          if (userPin === cleanPin) {
+            const user: LocalUser = {
+              uid: found.uid || found.id || "",
+              email: found.email || "",
+              ownerName: found.ownerName || found.owner_name || "",
+              phone: found.phone || "",
+              storeName: found.storeName || found.store_name || "",
+              businessType: found.businessType || found.business_type || "",
+              pinCode: userPin
+            };
+            localStorage.setItem("store_user", JSON.stringify(user));
+            return user;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Server direct auth lookup failed:", e);
+    }
+
+    // 3. Fallback: Check merged local storage cache
     const list = await this.getUsersList();
     const found = list.find(
-      (u) => u.phone.trim() === phone.trim() && u.pinCode.trim() === pin.trim()
+      (u) => u.phone.trim() === cleanPhone && u.pinCode.trim() === cleanPin
     );
     if (found) {
       localStorage.setItem("store_user", JSON.stringify(found));
@@ -206,7 +328,46 @@ class DatabaseService {
   public async getItems(userId: string): Promise<Item[]> {
     try {
       const saved = localStorage.getItem(`store_items_${userId}`);
-      return saved ? JSON.parse(saved) : [];
+      let items: Item[] = saved ? JSON.parse(saved) : [];
+
+      // 1. Direct Cloud Sync: Query Supabase directly if active
+      if (this.hasSupabaseKeys && this.supabaseClient) {
+        try {
+          const { data, error } = await this.supabaseClient
+            .from("inventory")
+            .select("*")
+            .eq("userId", userId);
+          if (!error && data) {
+            const cloudItems: Item[] = data.map((row: any) => ({
+              id: row.id,
+              userId: row.userId || row.user_id,
+              name: row.name,
+              qty: row.qty,
+              unit: row.unit,
+              price: row.price,
+              minQty: row.minQty || row.min_qty,
+              reorderQty: row.reorderQty || row.reorder_qty,
+              costPrice: row.costPrice || row.cost_price,
+              category: row.category,
+              createdAt: row.createdAt || row.created_at
+            }));
+            const filteredCloudItems = cloudItems.filter((item) => !item.id.startsWith("demo-"));
+            localStorage.setItem(`store_items_${userId}`, JSON.stringify(filteredCloudItems));
+            return filteredCloudItems;
+          }
+        } catch (e) {
+          console.warn("Failed to direct fetch items from Supabase:", e);
+        }
+      }
+
+      // 2. Query fallback: Central Server Database sync
+      const serverData = await this.serverFetch(`/api/db/sync/${userId}`);
+      if (serverData && Array.isArray(serverData.items)) {
+        const filteredServerItems = serverData.items.filter((item: any) => !item.id.startsWith("demo-"));
+        localStorage.setItem(`store_items_${userId}`, JSON.stringify(filteredServerItems));
+        return filteredServerItems;
+      }
+      return items;
     } catch (error) {
       console.error("Failed to parse items from storage:", error);
       return [];
@@ -217,8 +378,57 @@ class DatabaseService {
    * Save items list for a workspace
    */
   public async saveItems(userId: string, items: Item[]): Promise<void> {
+    const cleanItems = items.filter((item) => !item.id.startsWith("demo-"));
     try {
-      localStorage.setItem(`store_items_${userId}`, JSON.stringify(items));
+      localStorage.setItem(`store_items_${userId}`, JSON.stringify(cleanItems));
+
+      // Replicate to Server
+      await this.serverFetch("/api/db/sync", {
+        method: "POST",
+        body: JSON.stringify({ userId, items: cleanItems })
+      });
+
+      // Replicate to Supabase Directly (Upsert/Replace strategy)
+      if (this.hasSupabaseKeys && this.supabaseClient) {
+        try {
+          // Delete old entries for the user
+          await this.supabaseClient
+            .from("inventory")
+            .delete()
+            .eq("userId", userId);
+
+          if (cleanItems.length > 0) {
+            const rows = cleanItems.map(item => ({
+              id: item.id,
+              name: item.name,
+              qty: item.qty,
+              unit: item.unit,
+              minQty: item.minQty,
+              min_qty: item.minQty,
+              reorderQty: item.reorderQty,
+              reorder_qty: item.reorderQty,
+              price: item.price,
+              costPrice: item.costPrice,
+              cost_price: item.costPrice,
+              category: item.category,
+              userId: item.userId,
+              user_id: item.userId,
+              createdAt: item.createdAt,
+              created_at: item.createdAt
+            }));
+
+            const { error } = await this.supabaseClient
+              .from("inventory")
+              .insert(rows);
+
+            if (error) {
+              console.warn("Supabase direct inventory insert issue:", error.message);
+            }
+          }
+        } catch (e) {
+          console.warn("Failed direct items sync to Supabase:", e);
+        }
+      }
     } catch (error) {
       console.error("Failed to write items to storage:", error);
     }
@@ -234,7 +444,45 @@ class DatabaseService {
   public async getStockMoves(userId: string): Promise<StockMove[]> {
     try {
       const saved = localStorage.getItem(`store_moves_${userId}`);
-      return saved ? JSON.parse(saved) : [];
+      let moves: StockMove[] = saved ? JSON.parse(saved) : [];
+
+      // 1. Direct Cloud Sync: Query Supabase directly if active
+      if (this.hasSupabaseKeys && this.supabaseClient) {
+        try {
+          const { data, error } = await this.supabaseClient
+            .from("stock_moves")
+            .select("*")
+            .eq("userId", userId);
+          if (!error && data) {
+            const cloudMoves: StockMove[] = data.map((row: any) => ({
+              id: row.id,
+              userId: row.userId || row.user_id,
+              itemId: row.itemId || row.item_id,
+              itemName: row.itemName || row.item_name,
+              qty: row.qty,
+              type: row.type,
+              reason: row.reason,
+              date: row.date,
+              notes: row.notes,
+              createdAt: row.createdAt || row.created_at
+            }));
+            const filteredCloudMoves = cloudMoves.filter((m) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
+            localStorage.setItem(`store_moves_${userId}`, JSON.stringify(filteredCloudMoves));
+            return filteredCloudMoves;
+          }
+        } catch (e) {
+          console.warn("Failed to direct fetch moves from Supabase:", e);
+        }
+      }
+
+      // 2. Query fallback: Central Server Database sync
+      const serverData = await this.serverFetch(`/api/db/sync/${userId}`);
+      if (serverData && Array.isArray(serverData.moves)) {
+        const filteredServerMoves = serverData.moves.filter((m: any) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
+        localStorage.setItem(`store_moves_${userId}`, JSON.stringify(filteredServerMoves));
+        return filteredServerMoves;
+      }
+      return moves;
     } catch (error) {
       console.error("Failed to parse stock movements from storage:", error);
       return [];
@@ -245,8 +493,54 @@ class DatabaseService {
    * Save stock ledger moves list for a workspace
    */
   public async saveStockMoves(userId: string, moves: StockMove[]): Promise<void> {
+    const cleanMoves = moves.filter((m) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
     try {
-      localStorage.setItem(`store_moves_${userId}`, JSON.stringify(moves));
+      localStorage.setItem(`store_moves_${userId}`, JSON.stringify(cleanMoves));
+
+      // Replicate to Server
+      await this.serverFetch("/api/db/sync", {
+        method: "POST",
+        body: JSON.stringify({ userId, moves: cleanMoves })
+      });
+
+      // Replicate to Supabase Directly (Upsert/Replace strategy)
+      if (this.hasSupabaseKeys && this.supabaseClient) {
+        try {
+          await this.supabaseClient
+            .from("stock_moves")
+            .delete()
+            .eq("userId", userId);
+
+          if (cleanMoves.length > 0) {
+            const rows = cleanMoves.map(move => ({
+              id: move.id,
+              userId: move.userId,
+              user_id: move.userId,
+              itemId: move.itemId,
+              item_id: move.itemId,
+              itemName: move.itemName,
+              item_name: move.itemName,
+              qty: move.qty,
+              type: move.type,
+              reason: move.reason,
+              date: move.date,
+              notes: move.notes,
+              createdAt: move.createdAt,
+              created_at: move.createdAt
+            }));
+
+            const { error } = await this.supabaseClient
+              .from("stock_moves")
+              .insert(rows);
+
+            if (error) {
+              console.warn("Supabase direct stock_moves insert issue:", error.message);
+            }
+          }
+        } catch (e) {
+          console.warn("Failed direct stock moves sync to Supabase:", e);
+        }
+      }
     } catch (error) {
       console.error("Failed to write stock moves to storage:", error);
     }

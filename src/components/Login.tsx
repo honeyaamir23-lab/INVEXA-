@@ -75,29 +75,27 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     // Simulate database lookup or signup with tiny professional delay
     setTimeout(async () => {
       try {
-        const list = await dbService.getUsersList();
-        const foundUser = list.find((u) => u.phone.trim() === cleanPhone);
-
         if (mode === "login") {
           // ==================== LOGIN MODE ====================
+          // Query directly via cloud-first dbService auth
+          const foundUser = await dbService.authenticateWorkspace(cleanPhone, cleanPin);
+          
           if (foundUser) {
-            if (foundUser.pinCode.trim() === cleanPin) {
-              setToast({ message: "Welcome back! Access Granted!", type: "success" });
-              localStorage.setItem("store_user", JSON.stringify(foundUser));
-              setTimeout(() => {
-                onLoginSuccess(foundUser);
-                setLoading(false);
-              }, 800);
-            } else {
-              setError("Invalid Security PIN. Please try again.");
+            setToast({ message: "Welcome back! Access Granted!", type: "success" });
+            localStorage.setItem("store_user", JSON.stringify(foundUser));
+            setTimeout(() => {
+              onLoginSuccess(foundUser);
               setLoading(false);
-            }
+            }, 800);
           } else {
-            setError("This WhatsApp number is not registered. Please switch to 'Sign Up' tab to register.");
+            setError("Invalid WhatsApp number or security PIN. Please try again.");
             setLoading(false);
           }
         } else {
           // ==================== SIGNUP/CREATE ACCOUNT MODE ====================
+          const list = await dbService.getUsersList();
+          const foundUser = list.find((u) => u.phone.trim() === cleanPhone);
+
           if (foundUser) {
             setError("This WhatsApp number is already registered. Please login.");
             setLoading(false);

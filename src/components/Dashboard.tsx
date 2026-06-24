@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Item, StockMove } from "../types";
-import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X } from "lucide-react";
+import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X, User as UserIcon, Calendar, Briefcase } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface DashboardProps {
@@ -46,45 +46,62 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
   const rawUser = localStorage.getItem("store_user");
   let storeTitle = "My Store Dashboard";
   let storeCat = "Enterprise Workspace";
+  let ownerName = "Manager";
+  let phone = "";
   if (rawUser) {
     try {
       const parsed = JSON.parse(rawUser);
       storeTitle = parsed.storeName || storeTitle;
       storeCat = parsed.businessType || storeCat;
+      ownerName = parsed.ownerName || ownerName;
+      phone = parsed.phone || phone;
     } catch(e) {}
   }
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto pb-8 text-left">
-      {/* Top Welcome Title Card */}
+      {/* Top Welcome Title Card - Premium Mobile-First Branded Business Card */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-neutral-900 text-white rounded-3xl p-5 md:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md relative overflow-hidden"
+        className="bg-gradient-to-br from-[#0b0f19] via-[#071621] to-[#03070d] text-white rounded-3xl p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 shadow-2xl border border-emerald-500/20 relative overflow-hidden"
       >
-        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500 rounded-full filter blur-[80px] opacity-20" />
-        <div className="absolute bottom-0 left-0 w-32 h-32 bg-amber-500 rounded-full filter blur-[80px] opacity-10" />
+        {/* Soft glowing ambient backgrounds */}
+        <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500 rounded-full filter blur-[110px] opacity-25 animate-pulse" />
+        <div className="absolute bottom-0 left-0 w-36 h-36 bg-amber-500 rounded-full filter blur-[90px] opacity-15" />
 
-
-
-        <div className="flex items-center gap-4 relative z-10 pr-24 sm:pr-0">
-          <div className="h-12 w-12 bg-amber-100 rounded-xl flex items-center justify-center text-xl shadow-md shrink-0">
+        <div className="flex items-center gap-4 relative z-10 w-full">
+          {/* Branded Icon Container */}
+          <div className="h-14 w-14 bg-gradient-to-tr from-amber-400 to-amber-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-amber-500/10 border border-white/10 shrink-0 relative">
             <span>🏬</span>
           </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-black font-display leading-tight">{storeTitle}</h1>
-            <div className="flex flex-wrap items-center gap-2 mt-1">
-              <span className="text-emerald-400 text-[10px] bg-emerald-500/15 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold tracking-wider uppercase">
-                💼 {storeCat}
+
+          <div className="space-y-1 flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl font-black font-display tracking-tight leading-tight text-white flex items-center gap-2">
+              <span className="truncate">{storeTitle}</span>
+              <span className="text-emerald-400 text-sm md:text-base">✨</span>
+            </h1>
+
+            {/* Premium Meta Information Grid */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
+              <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
+                <Briefcase size={11} className="text-emerald-400" />
+                <span>{storeCat}</span>
               </span>
-              <span className="text-slate-400 text-[10px] font-medium">
-                ⏱️ {formattedDateEn}
+              <span className="text-slate-600 text-xs hidden sm:inline">•</span>
+              <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
+                <UserIcon size={11} className="text-amber-400" />
+                <span>{ownerName} ({phone || "Owner"})</span>
+              </span>
+              <span className="text-slate-600 text-xs hidden sm:inline">•</span>
+              <span className="flex items-center gap-1.5 text-slate-400 text-[10px] font-medium font-mono">
+                <Calendar size={11} className="text-slate-500" />
+                <span>{formattedDateEn}</span>
               </span>
             </div>
           </div>
         </div>
       </motion.div>
-
       {/* Analytics Widgets Grid (2x2 on mobile, perfectly responsive) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         {/* Total Items */}

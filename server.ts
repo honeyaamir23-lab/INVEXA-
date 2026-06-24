@@ -1,8 +1,42 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+
+const DB_FILE = path.join(process.cwd(), "data", "store_db.json");
+
+// Helper to read database
+function readDB() {
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!fs.existsSync(DB_FILE)) {
+      fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], items: {}, moves: {} }, null, 2));
+    }
+    const data = fs.readFileSync(DB_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch (e) {
+    console.error("Failed to read server DB:", e);
+    return { users: [], items: {}, moves: {} };
+  }
+}
+
+// Helper to write database
+function writeDB(data: any) {
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error("Failed to write server DB:", e);
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -10,6 +44,72 @@ async function startServer() {
 
   // Middleware
   app.use(express.json());
+
+  // CORS headers so that client-only deployments (like Vercel) can make cross-origin sync calls
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+    } else {
+      next();
+    }
+  });
+
+  // DB API 1: Get list of registered workspaces
+  app.get("/api/db/users", (req, res) => {
+    const db = readDB();
+    res.json(db.users || []);
+  });
+
+  // DB API 2: Register/Save a workspace user
+  app.post("/api/db/users", (req, res) => {
+    const user = req.body;
+    if (!user || !user.phone) {
+      return res.status(400).json({ error: "Invalid user data" });
+    }
+    const db = readDB();
+    db.users = db.users || [];
+    // Remove if already exists with same phone, and insert newest
+    db.users = [...db.users.filter((u: any) => u.phone.trim() !== user.phone.trim()), user];
+    writeDB(db);
+    res.json({ success: true, user });
+  });
+
+  // DB API 3: Sync items or stock moves for a user
+  app.post("/api/db/sync", (req, res) => {
+    const { userId, items, moves } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required for sync" });
+    }
+    const db = readDB();
+    db.items = db.items || {};
+    db.moves = db.moves || {};
+
+    if (items) {
+      db.items[userId] = items;
+    }
+    if (moves) {
+      db.moves[userId] = moves;
+    }
+
+    writeDB(db);
+    res.json({ success: true });
+  });
+
+  // DB API 4: Fetch synced items and stock moves for a user
+  app.get("/api/db/sync/:userId", (req, res) => {
+    const { userId } = req.params;
+    const db = readDB();
+    db.items = db.items || {};
+    db.moves = db.moves || {};
+
+    res.json({
+      items: db.items[userId] || [],
+      moves: db.moves[userId] || []
+    });
+  });
 
   // API 1: Health Check
   app.get("/api/health", (req, res) => {
@@ -48,11 +148,11 @@ The live inventory database context is:
 ${inventoryContext || "No items are currently listed in the store inventory."}
 
 Key Guidelines:
-1. TRULY BILINGUAL INTELLIGENCE (English & Urdu / Roman Urdu): You understand Urdu (written in Urdu script or English letters - Roman Urdu) perfectly alongside English. If the user greets or asks you questions in Urdu or Roman Urdu (e.g. 'Salam', 'kia hal hai', 'stock kitna bacha hai'), respond politely, clearly, and naturally in outstanding professional Urdu (or Roman Urdu), using terms like 'پیارے تاجر', 'سٹاک کی تفصیلات', etc. If they ask in English, answer in high-quality English.
+1. ENGLISH INTELLIGENCE: You understand English perfectly. Respond politely, clearly, and naturally in outstanding professional English.
 2. STRICT COMPLIANCE TO USER LENGTH & FORMAT (Extremely Critical for Speed):
-   - If the user asks for "short", "shortcut", "brief", or "مختصر", respond with DIRECT key data or numbers ONLY. Absolutely skip any opening greeting, introductory filler, or closing friendly text. Give pure facts immediately to ensure ultra-fast load times.
-   - If the user asks for "detailed", "full details", or "تفصیل", provide a comprehensive analysis of margins, costs, and advice.
-   - If the user asks for "numbered", "number wise", or "نمبر وائز", format the output strictly using ordered lists (1, 2, 3...) without verbose explanation paragraphs.
+   - If the user asks for "short", "shortcut", "brief", respond with DIRECT key data or numbers ONLY. Absolutely skip any opening greeting, introductory filler, or closing friendly text. Give pure facts immediately to ensure ultra-fast load times.
+   - If the user asks for "detailed" or "full details", provide a comprehensive analysis of margins, costs, and advice.
+   - If the user asks for "numbered" or "number wise", format the output strictly using ordered lists (1, 2, 3...) without verbose explanation paragraphs.
 3. Maintain a highly supportive, professional, encouraging business-companion tone. Refer to the merchant warmly.
 4. For low stock warnings, reorder suggestions, purchase costs, inventory value, or margins, strictly refer to the 'Current Live Inventory' data block above. Do not make up fake stock levels.
 5. If an item is running low, suggest ordering stock via WhatsApp easily by clicking the WhatsApp order dispatch button inside the Inventory tab.
