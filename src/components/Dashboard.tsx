@@ -91,7 +91,7 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
               <span className="text-slate-600 text-xs hidden sm:inline">•</span>
               <span className="flex items-center gap-1.5 text-slate-300 text-[10px] font-semibold">
                 <UserIcon size={11} className="text-amber-400" />
-                <span>{ownerName} ({phone || "Owner"})</span>
+                <span>{ownerName}</span>
               </span>
               <span className="text-slate-600 text-xs hidden sm:inline">•</span>
               <span className="flex items-center gap-1.5 text-slate-400 text-[10px] font-medium font-mono">

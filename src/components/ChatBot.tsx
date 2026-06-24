@@ -25,6 +25,15 @@ export default function ChatBot({ items, moves }: ChatBotProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fabBtnRef = useRef<HTMLButtonElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-expand textarea vertically as user types
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    }
+  }, [input]);
 
   // Auto scroll to bottom of chat
   useEffect(() => {
@@ -286,20 +295,26 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
             )}
 
             {/* Footer Input Bar */}
-            <div className="p-2 border-t border-slate-100 bg-white flex gap-2 shrink-0">
-              <input
-                type="text"
+            <div className="p-2 border-t border-slate-100 bg-white flex items-end gap-2 shrink-0">
+              <textarea
+                ref={textareaRef}
+                rows={1}
                 placeholder="Ask about inventory, value..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
                 disabled={loading}
-                className="flex-grow px-3 py-1.5 bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#25D366] rounded-xl text-[11px] duration-150 text-slate-900"
+                className="flex-grow px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#25D366] rounded-xl text-[11px] duration-150 text-slate-900 resize-none max-h-[120px] overflow-y-auto scrollbar-none"
               />
               <button
                 onClick={() => handleSendMessage()}
                 disabled={loading || !input.trim()}
-                className="h-8 w-8 bg-[#25D366] hover:bg-[#20ba5a] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition duration-150 shrink-0 cursor-pointer shadow-md"
+                className="h-8 w-8 bg-[#25D366] hover:bg-[#20ba5a] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition duration-150 shrink-0 cursor-pointer shadow-md self-end"
               >
                 <Send size={13} />
               </button>
