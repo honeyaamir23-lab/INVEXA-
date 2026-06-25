@@ -677,7 +677,7 @@ class DatabaseService {
         }
 
         if (!fetchError && fetchedData && Array.isArray(fetchedData)) {
-          return fetchedData.map((row: any) => ({
+          const list = fetchedData.map((row: any) => ({
             uid: row.uid || row.id || "",
             email: row.email || "",
             ownerName: row.ownerName || row.owner_name || "",
@@ -686,6 +686,11 @@ class DatabaseService {
             businessType: row.businessType || row.business_type || "",
             pinCode: (row.pinCode || row.pin_code || "").toString().trim()
           }));
+          // Cache the latest user list to local storage for fail-safe offline access
+          try {
+            localStorage.setItem("store_users_cache", JSON.stringify(list));
+          } catch (e) {}
+          return list;
         }
       } catch (e) {
         console.log("Failed to fetch workspaces list from Supabase:", e);
@@ -734,10 +739,25 @@ class DatabaseService {
     }
 
     if (allUsersMap.size > 0) {
-      return Array.from(allUsersMap.values());
+      const list = Array.from(allUsersMap.values());
+      try {
+        localStorage.setItem("store_users_cache", JSON.stringify(list));
+      } catch (e) {}
+      return list;
     }
 
-    // Fallback to currently logged-in user in localStorage if server is offline
+    // Fallback 1: Try reading from local offline list cache
+    try {
+      const cachedListStr = localStorage.getItem("store_users_cache");
+      if (cachedListStr) {
+        const list = JSON.parse(cachedListStr);
+        if (Array.isArray(list) && list.length > 0) {
+          return list;
+        }
+      }
+    } catch (e) {}
+
+    // Fallback 2: Fallback to currently logged-in user in localStorage if server is offline
     const saved = localStorage.getItem("store_user");
     if (saved) {
       try {
@@ -754,6 +774,15 @@ class DatabaseService {
     try {
       // Store current user session in local device
       localStorage.setItem("store_user", JSON.stringify(user));
+
+      // Merge and save to offline users list cache
+      try {
+        const cachedListStr = localStorage.getItem("store_users_cache");
+        let list: LocalUser[] = cachedListStr ? JSON.parse(cachedListStr) : [];
+        if (!Array.isArray(list)) list = [];
+        list = [user, ...list.filter((u: LocalUser) => u.phone.trim() !== user.phone.trim())];
+        localStorage.setItem("store_users_cache", JSON.stringify(list));
+      } catch (e) {}
 
       // Persist to Server Central Database
       await this.serverFetch("/api/db/users", {
@@ -818,6 +847,16 @@ class DatabaseService {
               pinCode: userPin
             };
             localStorage.setItem("store_user", JSON.stringify(user));
+            
+            // Sync to local cache list
+            try {
+              const cachedListStr = localStorage.getItem("store_users_cache");
+              let list: LocalUser[] = cachedListStr ? JSON.parse(cachedListStr) : [];
+              if (!Array.isArray(list)) list = [];
+              list = [user, ...list.filter((u: LocalUser) => u.phone.trim() !== user.phone.trim())];
+              localStorage.setItem("store_users_cache", JSON.stringify(list));
+            } catch (e) {}
+
             return user;
           }
         }
@@ -843,7 +882,24 @@ class DatabaseService {
       console.log("Server direct auth lookup details:", e);
     }
 
-    // Offline mode: allow logging back into the currently logged-in profile if already cached
+    // 3. Fallback to local offline cached users list
+    try {
+      const cachedListStr = localStorage.getItem("store_users_cache");
+      if (cachedListStr) {
+        const list: LocalUser[] = JSON.parse(cachedListStr);
+        if (Array.isArray(list)) {
+          const found = list.find(
+            (u: LocalUser) => u.phone.trim() === cleanPhone && u.pinCode.trim() === cleanPin
+          );
+          if (found) {
+            localStorage.setItem("store_user", JSON.stringify(found));
+            return found;
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 4. Offline fallback: allow logging back into the single currently logged-in profile if already cached
     const saved = localStorage.getItem("store_user");
     if (saved) {
       try {
