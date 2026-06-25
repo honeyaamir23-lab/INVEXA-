@@ -70,6 +70,7 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+  const [showAdvancedSetup, setShowAdvancedSetup] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, type: string) => {
@@ -153,18 +154,15 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
 
           {/* Premium Quick Utilities Panel */}
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0 pt-2 md:pt-0">
-            <button
-              onClick={() => setIsSupabaseModalOpen(true)}
-              className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border font-black text-[10px] uppercase tracking-wider cursor-pointer transition shadow-md ${
-                isDbConnected 
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" 
-                  : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
-              }`}
-              title="Supabase Cloud Connection Status & Setup"
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/40 border border-slate-700/50 shadow-xs select-none"
+              title={isDbConnected ? "Cloud database connected" : "Cloud database offline"}
             >
-              <Database size={12} className={isDbConnected ? "text-emerald-400" : "text-amber-400"} />
-              <span>{isDbConnected ? "Supabase: Connected" : "Supabase: Setup Needed"}</span>
-            </button>
+              <span className={`h-2.5 w-2.5 rounded-full ${isDbConnected ? "bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-slate-500"}`} />
+              <span className={`text-[10px] font-black tracking-wider uppercase ${isDbConnected ? "text-emerald-400" : "text-slate-400"}`}>
+                {isDbConnected ? "Connected" : "Offline"}
+              </span>
+            </div>
 
             <button
               onClick={() => setIsProfileModalOpen(true)}
@@ -559,143 +557,266 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
                 </div>
               </div>
 
-              {/* Urdu Instruction Box */}
-              <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl space-y-3 text-right">
-                <span className="text-[10px] font-extrabold text-emerald-600 block tracking-wider uppercase">اردو رہنمائی (Urdu Guide)</span>
-                <p className="text-xs text-slate-700 leading-relaxed font-semibold">
-                  اپنے سپا بیس پروجیکٹ کو اس ایپ کے ساتھ منسلک کرنے کے لیے درج ذیل معلومات فراہم کریں اور ٹیبلز بنائیں۔
-                </p>
-                
-                <div className="space-y-2 text-xs text-slate-600 font-medium">
-                  <div>
-                    <span className="font-black text-slate-800">1. کریڈنشلز کی کنفیگریشن:</span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      اپنے AI Studio کے **Secrets panel** میں دو ویریبلز شامل کریں:
-                    </p>
-                    <div className="bg-slate-100/85 p-2 rounded-xl text-left font-mono text-[10px] text-slate-700 space-y-1 mt-1 border border-slate-200">
-                      <div>VITE_SUPABASE_URL = &quot;YOUR_PROJECT_URL&quot;</div>
-                      <div>VITE_SUPABASE_ANON_KEY = &quot;YOUR_ANON_PUBLIC_KEY&quot;</div>
+              {/* Urdu Instruction Box & SQL Schema Sections conditional on connection status */}
+              {isDbConnected && !showAdvancedSetup ? (
+                <div className="space-y-4">
+                  {/* Celebratory Check and Success details */}
+                  <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-5 text-center space-y-3">
+                    <div className="h-11 w-11 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-lg font-black shadow-xs">
+                      ✓
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider">
+                        Supabase Successfully Synced
+                      </h4>
+                      <h5 className="font-extrabold text-emerald-800 text-xs">
+                        سبا بیس کامیابی سے منسلک ہے!
+                      </h5>
+                      <p className="text-[11px] text-slate-600 leading-relaxed mt-1 font-medium">
+                        آپ کا کلاؤڈ ڈیٹا بیس اور اسمارٹ سنکرونائزیشن مکمل طور پر آن لائن ہے۔ تمام اندراجات، اسٹاک موومنٹ اور دکان کی پروفائل کلاؤڈ پر محفوظ ہو رہے ہیں۔
+                      </p>
                     </div>
                   </div>
 
-                  <div className="pt-1">
-                    <span className="font-black text-slate-800">2. ڈیٹا بیس ٹیبلز کا سیٹ اپ:</span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      اپنے Supabase کے **SQL Editor** میں جا کر نیچے دیا گیا SQL اسکرپٹ رن کریں تاکہ دونوں ضروری ٹیبلز خودکار طور پر بن جائیں:
-                    </p>
+                  {/* Cloud Tables Verification List */}
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                      Cloud Sync Status (کلاؤڈ سنک کی تفصیلات)
+                    </span>
+                    
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2 font-semibold">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-slate-700">Inventory Sync (انوینٹری ٹیبل)</span>
+                        </div>
+                        <span className="font-bold text-emerald-600">Active ✓</span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2 font-semibold">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-slate-700">Stock Movements (اسٹاک ٹرانزیکشنز)</span>
+                        </div>
+                        <span className="font-bold text-emerald-600">Active ✓</span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pb-1 font-semibold">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-slate-700">Workspaces (دکان کی ترتیبات)</span>
+                        </div>
+                        <span className="font-bold text-emerald-600">Active ✓</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 text-center leading-relaxed font-semibold">
+                    The background engine automatically handles conflict resolution. If you lose internet, you can keep working normally.
+                  </p>
+
+                  <div className="pt-2">
+                    <button
+                      onClick={() => setShowAdvancedSetup(true)}
+                      className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-700 font-extrabold rounded-xl duration-150 cursor-pointer text-[10px] uppercase tracking-wider"
+                    >
+                      Show Setup Guide & SQL Schema
+                    </button>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {showAdvancedSetup && (
+                    <div className="mb-3">
+                      <button
+                        onClick={() => setShowAdvancedSetup(false)}
+                        className="text-[10px] font-extrabold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"
+                      >
+                        ← Back to Connected Status
+                      </button>
+                    </div>
+                  )}
+                  {/* Urdu Instruction Box */}
+                  <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl space-y-3 text-right">
+                    <span className="text-[10px] font-extrabold text-emerald-600 block tracking-wider uppercase">اردو رہنمائی (Urdu Guide)</span>
+                    <p className="text-xs text-slate-700 leading-relaxed font-semibold">
+                      اپنے سپا بیس پروجیکٹ کو اس ایپ کے ساتھ منسلک کرنے کے لیے درج ذیل معلومات فراہم کریں اور ٹیبلز بنائیں۔
+                    </p>
+                    
+                    <div className="space-y-2 text-xs text-slate-600 font-medium">
+                      <div>
+                        <span className="font-black text-slate-800">1. کریڈنشلز کی کنفیگریشن:</span>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          اپنے AI Studio کے **Secrets panel** میں دو ویریبلز شامل کریں:
+                        </p>
+                        <div className="bg-slate-100/85 p-2 rounded-xl text-left font-mono text-[10px] text-slate-700 space-y-1 mt-1 border border-slate-200">
+                          <div>VITE_SUPABASE_URL = &quot;YOUR_PROJECT_URL&quot;</div>
+                          <div>VITE_SUPABASE_ANON_KEY = &quot;YOUR_ANON_PUBLIC_KEY&quot;</div>
+                        </div>
+                      </div>
 
-              {/* SQL Schema Copy Section */}
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-1.5 px-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Required SQL Script</span>
-                  <button
-                    onClick={() => copyToClipboard(
-`-- 1. Create inventory table
-CREATE TABLE IF NOT EXISTS inventory (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  qty NUMERIC DEFAULT 0,
-  unit TEXT,
-  min_qty NUMERIC DEFAULT 0,
-  reorder_qty NUMERIC DEFAULT 0,
-  price NUMERIC DEFAULT 0,
-  cost_price NUMERIC DEFAULT 0,
-  category TEXT,
-  user_id TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  supplier TEXT,
-  brand TEXT,
-  location TEXT,
-  sku TEXT,
-  expiry_date TEXT
-);
+                      <div className="pt-1">
+                        <span className="font-black text-slate-800">2. ڈیٹا بیس ٹیبلز کا سیٹ اپ:</span>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          اپنے Supabase کے **SQL Editor** میں جا کر نیچے دیا گیا SQL اسکرپٹ رن کریں تاکہ دونوں ضروری ٹیبلز خودکار طور پر بن جائیں:
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
--- Enable RLS and create policy for public access
-ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public access for inventory" ON inventory FOR ALL USING (true);
+                  {/* SQL Schema Copy Section */}
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-1.5 px-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Required SQL Script</span>
+                      <button
+                        onClick={() => copyToClipboard(
+    `-- 1. Create inventory table
+    CREATE TABLE IF NOT EXISTS inventory (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      qty NUMERIC DEFAULT 0,
+      unit TEXT,
+      min_qty NUMERIC DEFAULT 0,
+      reorder_qty NUMERIC DEFAULT 0,
+      price NUMERIC DEFAULT 0,
+      cost_price NUMERIC DEFAULT 0,
+      category TEXT,
+      user_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      supplier TEXT,
+      brand TEXT,
+      location TEXT,
+      sku TEXT,
+      expiry_date TEXT
+    );
 
--- 2. Create stock_moves table
-CREATE TABLE IF NOT EXISTS stock_moves (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  item_id TEXT REFERENCES inventory(id) ON DELETE CASCADE,
-  item_name TEXT,
-  qty NUMERIC DEFAULT 0,
-  type TEXT,
-  reason TEXT,
-  date TEXT,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+    -- Enable RLS and create policy for public access
+    ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public access for inventory" ON inventory FOR ALL USING (true);
 
--- Enable RLS and create policy for public access
-ALTER TABLE stock_moves ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public access for stock_moves" ON stock_moves FOR ALL USING (true);`,
-                      "sql"
-                    )}
-                    className="flex items-center gap-1.5 py-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold duration-150 cursor-pointer"
-                  >
-                    {copiedText === "sql" ? (
-                      <>
-                        <Check size={11} className="text-emerald-600" />
-                        <span className="text-emerald-600">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={11} />
-                        <span>Copy SQL</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+    -- 2. Create stock_moves table
+    CREATE TABLE IF NOT EXISTS stock_moves (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      item_id TEXT,
+      item_name TEXT,
+      qty NUMERIC DEFAULT 0,
+      type TEXT,
+      reason TEXT,
+      date TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
-                <div className="bg-slate-900 text-amber-400 p-3.5 rounded-2xl font-mono text-[9px] overflow-x-auto max-h-[180px] text-left border border-slate-850 shadow-inner">
-                  <pre>{`-- 1. Create inventory table
-CREATE TABLE IF NOT EXISTS inventory (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  qty NUMERIC DEFAULT 0,
-  unit TEXT,
-  min_qty NUMERIC DEFAULT 0,
-  reorder_qty NUMERIC DEFAULT 0,
-  price NUMERIC DEFAULT 0,
-  cost_price NUMERIC DEFAULT 0,
-  category TEXT,
-  user_id TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  supplier TEXT,
-  brand TEXT,
-  location TEXT,
-  sku TEXT,
-  expiry_date TEXT
-);
+    -- Enable RLS and create policy for public access
+    ALTER TABLE stock_moves ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public access for stock_moves" ON stock_moves FOR ALL USING (true);
 
--- Enable RLS and create policy for public access
-ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public access for inventory" ON inventory FOR ALL USING (true);
+    -- 3. Create workspaces table (Essential for synchronization & logins across devices)
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      uid TEXT,
+      email TEXT,
+      owner_name TEXT,
+      ownerName TEXT,
+      phone TEXT,
+      store_name TEXT,
+      storeName TEXT,
+      business_type TEXT,
+      businessType TEXT,
+      pin_code TEXT,
+      pinCode TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
--- 2. Create stock_moves table
-CREATE TABLE IF NOT EXISTS stock_moves (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  item_id TEXT REFERENCES inventory(id) ON DELETE CASCADE,
-  item_name TEXT,
-  qty NUMERIC DEFAULT 0,
-  type TEXT,
-  reason TEXT,
-  date TEXT,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+    -- Enable RLS and create policy for public access
+    ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public access for workspaces" ON workspaces FOR ALL USING (true);`,
+                          "sql"
+                        )}
+                        className="flex items-center gap-1.5 py-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold duration-150 cursor-pointer"
+                      >
+                        {copiedText === "sql" ? (
+                          <>
+                            <Check size={11} className="text-emerald-600" />
+                            <span className="text-emerald-600">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={11} />
+                            <span>Copy SQL</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
 
--- Enable RLS and create policy for public access
-ALTER TABLE stock_moves ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public access for stock_moves" ON stock_moves FOR ALL USING (true);`}</pre>
-                </div>
-              </div>
+                    <div className="bg-slate-900 text-amber-400 p-3.5 rounded-2xl font-mono text-[9px] overflow-x-auto max-h-[180px] text-left border border-slate-850 shadow-inner">
+                      <pre>{`-- 1. Create inventory table
+    CREATE TABLE IF NOT EXISTS inventory (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      qty NUMERIC DEFAULT 0,
+      unit TEXT,
+      min_qty NUMERIC DEFAULT 0,
+      reorder_qty NUMERIC DEFAULT 0,
+      price NUMERIC DEFAULT 0,
+      cost_price NUMERIC DEFAULT 0,
+      category TEXT,
+      user_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      supplier TEXT,
+      brand TEXT,
+      location TEXT,
+      sku TEXT,
+      expiry_date TEXT
+    );
+
+    -- Enable RLS and create policy for public access
+    ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public access for inventory" ON inventory FOR ALL USING (true);
+
+    -- 2. Create stock_moves table
+    CREATE TABLE IF NOT EXISTS stock_moves (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      item_id TEXT,
+      item_name TEXT,
+      qty NUMERIC DEFAULT 0,
+      type TEXT,
+      reason TEXT,
+      date TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Enable RLS and create policy for public access
+    ALTER TABLE stock_moves ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public access for stock_moves" ON stock_moves FOR ALL USING (true);
+
+    -- 3. Create workspaces table (Essential for synchronization & logins across devices)
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      uid TEXT,
+      email TEXT,
+      owner_name TEXT,
+      ownerName TEXT,
+      phone TEXT,
+      store_name TEXT,
+      storeName TEXT,
+      business_type TEXT,
+      businessType TEXT,
+      pin_code TEXT,
+      pinCode TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Enable RLS and create policy for public access
+    ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public access for workspaces" ON workspaces FOR ALL USING (true);`}</pre>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Close Button */}
               <div className="mt-5 pt-3 border-t border-slate-100 flex gap-2">

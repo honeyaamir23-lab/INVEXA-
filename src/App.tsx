@@ -93,6 +93,10 @@ export default function App() {
   // Check Supabase connection status check on startup and initialize sync status
   useEffect(() => {
     const checkSupabase = async () => {
+      if (!isOnline) {
+        setIsDbConnected(false);
+        return;
+      }
       try {
         const connected = await dbService.checkConnection();
         setIsDbConnected(connected);
@@ -101,7 +105,7 @@ export default function App() {
       }
     };
     checkSupabase();
-  }, [user?.uid]);
+  }, [user?.uid, isOnline]);
 
   // Register database service sync status listener
   useEffect(() => {
@@ -120,8 +124,15 @@ export default function App() {
   // Handle network online/offline events & periodic automatic self-aware merging
   useEffect(() => {
     const runSelfAwareSync = async () => {
-      if (!user || !navigator.onLine) return;
+      if (!user || !navigator.onLine) {
+        setIsDbConnected(false);
+        return;
+      }
       try {
+        const connected = await dbService.checkConnection();
+        setIsDbConnected(connected);
+        if (!connected) return;
+
         const result = await dbService.performSelfAwareSync(user.uid, itemsRef.current, movesRef.current);
         if (result && result.success) {
           const itemsChanged = JSON.stringify(result.items) !== JSON.stringify(itemsRef.current);
@@ -134,7 +145,7 @@ export default function App() {
           }
         }
       } catch (e) {
-        console.warn("Self-aware sync check failed silently:", e);
+        console.log("Self-aware sync check details (offline fallback):", e);
       }
     };
 
@@ -144,15 +155,19 @@ export default function App() {
     };
     const handleOffline = () => {
       setIsOnline(false);
+      setIsDbConnected(false);
     };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
     const interval = setInterval(() => {
-      setIsOnline(navigator.onLine);
-      if (navigator.onLine) {
+      const online = navigator.onLine;
+      setIsOnline(online);
+      if (online) {
         runSelfAwareSync();
+      } else {
+        setIsDbConnected(false);
       }
     }, 15000); // Trigger background sync check every 15s
 

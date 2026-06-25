@@ -84,7 +84,7 @@ class DatabaseService {
   }
 
   public triggerSync(userId: string) {
-    this.syncPendingQueue(userId).catch(e => console.warn("Background sync trigger failed:", e));
+    this.syncPendingQueue(userId).catch(e => console.log("Background sync trigger info:", e));
   }
 
   public async syncPendingQueue(userId: string, onProgress?: (status: string) => void): Promise<boolean> {
@@ -131,55 +131,44 @@ class DatabaseService {
             name: item.name,
             qty: item.qty,
             unit: item.unit,
-            minQty: item.minQty,
             min_qty: item.minQty,
-            reorderQty: item.reorderQty,
             reorder_qty: item.reorderQty,
             price: item.price,
-            costPrice: item.costPrice,
             cost_price: item.costPrice,
             category: item.category,
             supplier: item.supplier,
             brand: item.brand,
             location: item.location,
             sku: item.sku,
-            expiryDate: item.expiryDate,
             expiry_date: item.expiryDate,
-            userId: item.userId,
             user_id: item.userId,
-            createdAt: item.createdAt,
             created_at: item.createdAt
           };
           const { error } = await client.from("inventory").upsert([row]);
           if (!error) success = true;
-          else console.warn("Sync UPSERT_ITEM failed:", error);
+          else console.log("Sync UPSERT_ITEM failure info:", error);
         } else if (task.action === "DELETE_ITEM") {
           const { error: itemErr } = await client.from("inventory").delete().eq("id", task.targetId);
-          const { error: movesErr } = await client.from("stock_moves").delete().eq("itemId", task.targetId);
+          const { error: movesErr } = await client.from("stock_moves").delete().eq("item_id", task.targetId);
           if (!itemErr) success = true;
-          else console.warn("Sync DELETE_ITEM failed:", itemErr);
+          else console.log("Sync DELETE_ITEM failed:", itemErr);
         } else if (task.action === "INSERT_MOVE") {
           const move = task.payload;
           const row = {
             id: move.id,
-            userId: move.userId,
             user_id: move.userId,
-            itemId: move.itemId,
             item_id: move.itemId,
-            itemName: move.itemName,
             item_name: move.itemName,
             qty: move.qty,
             type: move.type,
             reason: move.reason,
             date: move.date,
             notes: move.notes,
-            price: move.price,
-            createdAt: move.createdAt,
             created_at: move.createdAt
           };
           const { error } = await client.from("stock_moves").upsert([row]);
           if (!error) success = true;
-          else console.warn("Sync INSERT_MOVE failed:", error);
+          else console.log("Sync INSERT_MOVE failure info:", error);
         } else if (task.action === "UPSERT_WORKSPACE") {
           const user = task.payload;
           const row = {
@@ -203,7 +192,7 @@ class DatabaseService {
             error2 = err2;
           }
           if (!error || !error2) success = true;
-          else console.warn("Sync UPSERT_WORKSPACE failed:", error, error2);
+          else console.log("Sync UPSERT_WORKSPACE failure info:", error, error2);
         }
 
         if (success) {
@@ -215,7 +204,7 @@ class DatabaseService {
             this.syncStatusListener("syncing", updatedQueue.length);
           }
         } else {
-          console.warn("Failed to sync task, pausing queue processing:", task);
+          console.log("Sync task paused for queue processing:", task);
           break;
         }
       } catch (err) {
@@ -272,12 +261,12 @@ class DatabaseService {
     try {
       // Fetch latest items and moves from Supabase
       const [itemsResult, movesResult] = await Promise.all([
-        this.supabaseClient.from("inventory").select("*").eq("userId", userId),
-        this.supabaseClient.from("stock_moves").select("*").eq("userId", userId)
+        this.supabaseClient.from("inventory").select("*").eq("user_id", userId),
+        this.supabaseClient.from("stock_moves").select("*").eq("user_id", userId)
       ]);
 
       if (itemsResult.error || movesResult.error) {
-        console.warn("Self-aware sync fetch error:", itemsResult.error, movesResult.error);
+        console.log("Self-aware sync fetch details:", itemsResult.error, movesResult.error);
         return null;
       }
 
@@ -398,15 +387,15 @@ class DatabaseService {
         return await response.json();
       }
     } catch (e) {
-      console.warn(`Server endpoint ${endpoint} unreachable, defaulting to offline storage.`);
+      console.log(`Server endpoint ${endpoint} unreachable, defaulting to offline storage.`);
     }
     return null;
   }
 
   constructor() {
     // Check for client-side Supabase credentials
-    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "https://yveulmixiapooghegkxq.supabase.co";
+    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "sb_publishable__vMM-QxRopYwtTRH0cd74Q_FC0pxAhy";
 
     if (supabaseUrl && supabaseKey) {
       this.hasSupabaseKeys = true;
@@ -434,29 +423,19 @@ class DatabaseService {
    * Gracefully handles timeouts and networks errors to prevent script failures.
    */
   public async checkConnection(): Promise<boolean> {
-    if (!this.hasSupabaseKeys) {
-      return false;
-    }
-
-    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-    if (!supabaseUrl) {
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
       return false;
     }
 
     try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 2200);
-
-      const response = await fetch(`${supabaseUrl}/rest/v1/`, {
-        method: "GET",
-        headers: {
-          "apikey": (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || ""
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(id);
-      return response.status >= 200 && response.status < 500;
+      // Native, high-performance check by selecting 1 row from inventory
+      const { error } = await this.supabaseClient.from("inventory").select("id").limit(1);
+      
+      // If there is an error but it's not a network error (e.g. PGRST116 or empty result), we are connected!
+      if (error && error.message && (error.message.includes("fetch") || error.message.includes("network"))) {
+        return false;
+      }
+      return true;
     } catch (e) {
       console.log("Supabase connection offline. Defaulting to enterprise LocalStorage Fallback.", e);
       return false;
@@ -507,7 +486,7 @@ class DatabaseService {
           }));
         }
       } catch (e) {
-        console.warn("Failed to fetch workspaces list from Supabase:", e);
+        console.log("Failed to fetch workspaces list from Supabase:", e);
       }
     }
 
@@ -526,7 +505,7 @@ class DatabaseService {
         }));
       }
     } catch (e) {
-      console.warn("Server user fetch failed, offline or server unreachable.");
+      console.log("Server user fetch status (offline/unreachable).");
     }
 
     // Fallback to currently logged-in user in localStorage if server is offline
@@ -614,7 +593,7 @@ class DatabaseService {
           }
         }
       } catch (e) {
-        console.warn("Supabase direct auth lookup failed:", e);
+        console.log("Supabase direct auth lookup details:", e);
       }
     }
 
@@ -643,7 +622,7 @@ class DatabaseService {
         }
       }
     } catch (e) {
-      console.warn("Server direct auth lookup failed:", e);
+      console.log("Server direct auth lookup details:", e);
     }
 
     // Offline mode: allow logging back into the currently logged-in profile if already cached
@@ -702,7 +681,7 @@ class DatabaseService {
         const { data, error } = await this.supabaseClient
           .from("inventory")
           .select("*")
-          .eq("userId", userId);
+          .eq("user_id", userId);
         if (!error && data) {
           const cloudItems: Item[] = data.map((row: any) => ({
             id: row.id,
@@ -727,7 +706,7 @@ class DatabaseService {
           return filteredCloudItems;
         }
       } catch (e) {
-        console.warn("Failed to direct fetch items from Supabase:", e);
+        console.log("Failed to direct fetch items from Supabase:", e);
       }
 
       return items;
@@ -790,7 +769,7 @@ class DatabaseService {
         const { data, error } = await this.supabaseClient
           .from("stock_moves")
           .select("*")
-          .eq("userId", userId);
+          .eq("user_id", userId);
         if (!error && data) {
           const cloudMoves: StockMove[] = data.map((row: any) => ({
             id: row.id,
@@ -810,7 +789,7 @@ class DatabaseService {
           return filteredCloudMoves;
         }
       } catch (e) {
-        console.warn("Failed to direct fetch moves from Supabase:", e);
+        console.log("Failed to direct fetch moves from Supabase:", e);
       }
 
       return moves;

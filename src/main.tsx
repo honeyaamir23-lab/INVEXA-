@@ -9,7 +9,7 @@ if (typeof window !== "undefined") {
   window.addEventListener('error', (event) => {
     if (event.message === "Script error." || !event.message) {
       event.preventDefault();
-      console.warn("Suppressed cross-origin or external script error in preview frame.");
+      console.log("Suppressed cross-origin or external script error in preview frame.");
     }
   });
 
@@ -17,7 +17,7 @@ if (typeof window !== "undefined") {
     const msg = event.reason?.message || String(event.reason);
     if (msg === "Script error." || msg.includes("Script error")) {
       event.preventDefault();
-      console.warn("Suppressed cross-origin or external unhandled promise rejection in preview frame.");
+      console.log("Suppressed cross-origin or external unhandled promise rejection in preview frame.");
     }
   });
 }
