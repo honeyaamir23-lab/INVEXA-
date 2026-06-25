@@ -100,6 +100,31 @@ class DatabaseService {
     this.syncPendingQueue(userId).catch(e => console.log("Background sync trigger info:", e));
   }
 
+  private isDatabaseError(error: any): boolean {
+    if (!error) return false;
+    const code = (error.code || "").toString();
+    const message = (error.message || "").toLowerCase();
+    
+    // Check for PostgreSQL standard error codes
+    // 42P01 is undefined_table, 42703 is undefined_column, 42501 is permission_denied, 23502 is not_null_violation, etc.
+    if (code && (code.startsWith("42") || code.startsWith("23") || code.startsWith("PGRST"))) {
+      return true;
+    }
+    
+    // Fallback phrase checks
+    if (message.includes("relation") && message.includes("does not exist")) {
+      return true;
+    }
+    if (message.includes("column") && message.includes("does not exist")) {
+      return true;
+    }
+    if (message.includes("permission") || message.includes("policy") || message.includes("violates")) {
+      return true;
+    }
+    
+    return false;
+  }
+
   public async syncPendingQueue(userId: string, onProgress?: (status: string) => void): Promise<boolean> {
     if (this.isSyncing) return false;
     
@@ -137,9 +162,10 @@ class DatabaseService {
     for (const task of queue) {
       try {
         let success = false;
+        
         if (task.action === "UPSERT_ITEM") {
           const item = task.payload;
-          const row = {
+          const snakeRow = {
             id: item.id,
             name: item.name,
             qty: item.qty,
@@ -157,17 +183,64 @@ class DatabaseService {
             user_id: item.userId,
             created_at: item.createdAt
           };
-          const { error } = await client.from("inventory").upsert([row]);
-          if (!error) success = true;
-          else console.log("Sync UPSERT_ITEM failure info:", error);
+          const camelRow = {
+            id: item.id,
+            name: item.name,
+            qty: item.qty,
+            unit: item.unit,
+            minQty: item.minQty,
+            reorderQty: item.reorderQty,
+            price: item.price,
+            costPrice: item.costPrice,
+            category: item.category,
+            supplier: item.supplier,
+            brand: item.brand,
+            location: item.location,
+            sku: item.sku,
+            expiryDate: item.expiryDate,
+            userId: item.userId,
+            createdAt: item.createdAt
+          };
+          const fullRow = { ...snakeRow, ...camelRow };
+
+          let { error } = await client.from("inventory").upsert([fullRow]);
+          
+          if (error && (error.code === "42703" || error.message?.includes("column"))) {
+            console.log("Upsert inventory with full columns failed, trying clean snake_case row...");
+            const res = await client.from("inventory").upsert([snakeRow]);
+            error = res.error;
+            if (error && (error.code === "42703" || error.message?.includes("column"))) {
+              console.log("Upsert inventory failed with snake_case, trying clean camelCase row...");
+              const res2 = await client.from("inventory").upsert([camelRow]);
+              error = res2.error;
+            }
+          }
+
+          if (!error) {
+            success = true;
+          } else {
+            console.log("Sync UPSERT_ITEM failure info:", error);
+            if (this.isDatabaseError(error)) {
+              console.warn("Permanent database table/schema error for inventory. Skipping task to avoid sync deadlock.");
+              success = true; // Clear from queue to prevent blockades
+            }
+          }
         } else if (task.action === "DELETE_ITEM") {
           const { error: itemErr } = await client.from("inventory").delete().eq("id", task.targetId);
-          const { error: movesErr } = await client.from("stock_moves").delete().eq("item_id", task.targetId);
-          if (!itemErr) success = true;
-          else console.log("Sync DELETE_ITEM failed:", itemErr);
+          await client.from("stock_moves").delete().eq("item_id", task.targetId);
+          
+          if (!itemErr) {
+            success = true;
+          } else {
+            console.log("Sync DELETE_ITEM failed:", itemErr);
+            if (this.isDatabaseError(itemErr)) {
+              console.warn("Permanent database schema error during delete. Skipping to prevent sync queue blockade.");
+              success = true;
+            }
+          }
         } else if (task.action === "INSERT_MOVE") {
           const move = task.payload;
-          const row = {
+          const snakeRow = {
             id: move.id,
             user_id: move.userId,
             item_id: move.itemId,
@@ -179,12 +252,45 @@ class DatabaseService {
             notes: move.notes,
             created_at: move.createdAt
           };
-          const { error } = await client.from("stock_moves").upsert([row]);
-          if (!error) success = true;
-          else console.log("Sync INSERT_MOVE failure info:", error);
+          const camelRow = {
+            id: move.id,
+            userId: move.userId,
+            itemId: move.itemId,
+            itemName: move.itemName,
+            qty: move.qty,
+            type: move.type,
+            reason: move.reason,
+            date: move.date,
+            notes: move.notes,
+            createdAt: move.createdAt
+          };
+          const fullRow = { ...snakeRow, ...camelRow };
+
+          let { error } = await client.from("stock_moves").upsert([fullRow]);
+          
+          if (error && (error.code === "42703" || error.message?.includes("column"))) {
+            console.log("Upsert stock_moves failed with full row, trying clean snake_case row...");
+            const res = await client.from("stock_moves").upsert([snakeRow]);
+            error = res.error;
+            if (error && (error.code === "42703" || error.message?.includes("column"))) {
+              console.log("Upsert stock_moves failed with snake_case, trying clean camelCase row...");
+              const res2 = await client.from("stock_moves").upsert([camelRow]);
+              error = res2.error;
+            }
+          }
+
+          if (!error) {
+            success = true;
+          } else {
+            console.log("Sync INSERT_MOVE failure info:", error);
+            if (this.isDatabaseError(error)) {
+              console.warn("Permanent database table/schema error for stock_moves. Skipping task to avoid sync deadlock.");
+              success = true;
+            }
+          }
         } else if (task.action === "UPSERT_WORKSPACE") {
           const user = task.payload;
-          const row = {
+          const fullRow = {
             id: user.uid,
             uid: user.uid,
             email: user.email,
@@ -198,14 +304,60 @@ class DatabaseService {
             pinCode: user.pinCode,
             pin_code: user.pinCode
           };
-          const { error } = await client.from("workspaces").upsert([row]);
+          const snakeRow = {
+            id: user.uid,
+            uid: user.uid,
+            email: user.email,
+            owner_name: user.ownerName,
+            phone: user.phone,
+            store_name: user.storeName,
+            business_type: user.businessType,
+            pin_code: user.pinCode
+          };
+          const camelRow = {
+            id: user.uid,
+            uid: user.uid,
+            email: user.email,
+            ownerName: user.ownerName,
+            phone: user.phone,
+            storeName: user.storeName,
+            businessType: user.businessType,
+            pinCode: user.pinCode
+          };
+
+          let { error } = await client.from("workspaces").upsert([fullRow]);
+          if (error && (error.code === "42703" || error.message?.includes("column"))) {
+            console.log("Upsert workspaces failed with full columns, trying clean snake_case row...");
+            const res = await client.from("workspaces").upsert([snakeRow]);
+            error = res.error;
+            if (error && (error.code === "42703" || error.message?.includes("column"))) {
+              console.log("Upsert workspaces failed with snake_case, trying clean camelCase row...");
+              const res2 = await client.from("workspaces").upsert([camelRow]);
+              error = res2.error;
+            }
+          }
+
           let error2 = null;
           if (error) {
-            const { error: err2 } = await client.from("store_users").upsert([row]);
-            error2 = err2;
+            let resUser = await client.from("store_users").upsert([fullRow]);
+            if (resUser.error && (resUser.error.code === "42703" || resUser.error.message?.includes("column"))) {
+              resUser = await client.from("store_users").upsert([snakeRow]);
+              if (resUser.error && (resUser.error.code === "42703" || resUser.error.message?.includes("column"))) {
+                resUser = await client.from("store_users").upsert([camelRow]);
+              }
+            }
+            error2 = resUser.error;
           }
-          if (!error || !error2) success = true;
-          else console.log("Sync UPSERT_WORKSPACE failure info:", error, error2);
+
+          if (!error || !error2) {
+            success = true;
+          } else {
+            console.log("Sync UPSERT_WORKSPACE failure info:", error, error2);
+            if (this.isDatabaseError(error) && (error2 === null || this.isDatabaseError(error2))) {
+              console.warn("Permanent database workspace tables are missing or have wrong schema. Skipping task to prevent blockade.");
+              success = true;
+            }
+          }
         }
 
         if (success) {
@@ -382,13 +534,16 @@ class DatabaseService {
     if (origin.includes("localhost") || origin.includes(".run.app") || origin.includes("3000")) {
       return "";
     }
-    // Deep fallback to original central Cloud Run container backend
+    // Deep fallback to original central Cloud Run container backend (Preview URL)
     return "https://ais-pre-54pnig5mr3islz2e74ix2w-927601963567.asia-southeast1.run.app";
   }
 
   private async serverFetch(endpoint: string, options?: RequestInit): Promise<any> {
+    const baseUrl = this.getBaseUrl();
+    let mainResult = null;
+
+    // 1. Fetch from the primary environment
     try {
-      const baseUrl = this.getBaseUrl();
       const response = await fetch(`${baseUrl}${endpoint}`, {
         ...options,
         headers: {
@@ -397,12 +552,39 @@ class DatabaseService {
         }
       });
       if (response.ok) {
-        return await response.json();
+        mainResult = await response.json();
       }
     } catch (e) {
-      console.log(`Server endpoint ${endpoint} unreachable, defaulting to offline storage.`);
+      console.log(`Server fetch error on main URL (${baseUrl}):`, e);
     }
-    return null;
+
+    // 2. Mirror or fallback fetch for multi-environment synergy
+    if (baseUrl.includes("-pre-") || baseUrl.includes("-dev-")) {
+      const fallbackUrl = baseUrl.includes("-pre-")
+        ? baseUrl.replace("-pre-", "-dev-")
+        : baseUrl.replace("-dev-", "-pre-");
+
+      try {
+        console.log(`Mirroring or falling back fetch to: ${fallbackUrl}`);
+        const response = await fetch(`${fallbackUrl}${endpoint}`, {
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...(options?.headers || {})
+          }
+        });
+        if (response.ok) {
+          const fallbackResult = await response.json();
+          if (!mainResult) {
+            mainResult = fallbackResult;
+          }
+        }
+      } catch (e) {
+        console.log(`Server fetch error on fallback URL (${fallbackUrl}):`, e);
+      }
+    }
+
+    return mainResult;
   }
 
   constructor() {
@@ -510,22 +692,49 @@ class DatabaseService {
       }
     }
 
-    // 2. Query fallback: Central Server Database sync
-    try {
-      const serverUsers = await this.serverFetch("/api/db/users");
-      if (serverUsers && Array.isArray(serverUsers)) {
-        return serverUsers.map((u: any) => ({
-          uid: u.uid || u.id || "",
-          email: u.email || "",
-          ownerName: u.ownerName || "",
-          phone: u.phone || "",
-          storeName: u.storeName || "",
-          businessType: u.businessType || "",
-          pinCode: u.pinCode || ""
-        }));
+    // 2. Query fallback: Central Server Database sync across ALL container instances
+    const allUsersMap = new Map<string, LocalUser>();
+    const urlsToTry = [];
+    const baseUrl = this.getBaseUrl();
+    urlsToTry.push(baseUrl);
+
+    if (baseUrl.includes("-pre-")) {
+      urlsToTry.push(baseUrl.replace("-pre-", "-dev-"));
+    } else if (baseUrl.includes("-dev-")) {
+      urlsToTry.push(baseUrl.replace("-dev-", "-pre-"));
+    }
+
+    for (const url of urlsToTry) {
+      try {
+        const response = await fetch(`${url}/api/db/users`, {
+          headers: { "Content-Type": "application/json" }
+        });
+        if (response.ok) {
+          const serverUsers = await response.json();
+          if (serverUsers && Array.isArray(serverUsers)) {
+            for (const u of serverUsers) {
+              const cleanPhone = (u.phone || "").toString().trim();
+              if (cleanPhone) {
+                allUsersMap.set(cleanPhone, {
+                  uid: u.uid || u.id || "",
+                  email: u.email || "",
+                  ownerName: u.ownerName || u.owner_name || "",
+                  phone: cleanPhone,
+                  storeName: u.storeName || u.store_name || "",
+                  businessType: u.businessType || u.business_type || "",
+                  pinCode: (u.pinCode || u.pin_code || u.pin || "").toString().trim()
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`Failed fallback user fetch from ${url}:`, e);
       }
-    } catch (e) {
-      console.log("Server user fetch status (offline/unreachable).");
+    }
+
+    if (allUsersMap.size > 0) {
+      return Array.from(allUsersMap.values());
     }
 
     // Fallback to currently logged-in user in localStorage if server is offline
@@ -617,28 +826,17 @@ class DatabaseService {
       }
     }
 
-    // 2. Direct central server database lookup
+    // 2. Direct central server database lookup across all active server container environments
     try {
-      const serverUsers = await this.serverFetch("/api/db/users");
-      if (serverUsers && Array.isArray(serverUsers)) {
-        const found = serverUsers.find(
-          (u: any) => u.phone && u.phone.trim() === cleanPhone
-        );
-        if (found) {
-          const userPin = (found.pinCode || found.pin_code || found.pin || "").toString().trim();
-          if (userPin === cleanPin) {
-            const user: LocalUser = {
-              uid: found.uid || found.id || "",
-              email: found.email || "",
-              ownerName: found.ownerName || found.owner_name || "",
-              phone: found.phone || "",
-              storeName: found.storeName || found.store_name || "",
-              businessType: found.businessType || found.business_type || "",
-              pinCode: userPin
-            };
-            localStorage.setItem("store_user", JSON.stringify(user));
-            return user;
-          }
+      const serverUsers = await this.getUsersList();
+      const found = serverUsers.find(
+        (u: any) => u.phone && u.phone.trim() === cleanPhone
+      );
+      if (found) {
+        const userPin = found.pinCode.trim();
+        if (userPin === cleanPin) {
+          localStorage.setItem("store_user", JSON.stringify(found));
+          return found;
         }
       }
     } catch (e) {
