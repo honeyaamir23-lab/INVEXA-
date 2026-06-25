@@ -77,13 +77,20 @@ export default function App() {
   });
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "pending" | "syncing">("idle");
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   
   // Shared edit state between dashboard / items modal
   const [activeEditItem, setActiveEditItem] = useState<Item | null>(null);
 
+  // Refs to prevent dependency-loop restarts in background sync effects
+  const itemsRef = useRef<Item[]>(items);
+  itemsRef.current = items;
+  const movesRef = useRef<StockMove[]>(moves);
+  movesRef.current = moves;
 
-
-  // Check Supabase connection status check on startup
+  // Check Supabase connection status check on startup and initialize sync status
   useEffect(() => {
     const checkSupabase = async () => {
       try {
@@ -94,6 +101,71 @@ export default function App() {
       }
     };
     checkSupabase();
+  }, [user?.uid]);
+
+  // Register database service sync status listener
+  useEffect(() => {
+    dbService.registerSyncStatusListener((status, count) => {
+      setSyncStatus(status);
+      setPendingCount(count);
+    });
+
+    if (user) {
+      const initialQueue = dbService.getSyncQueue(user.uid);
+      setPendingCount(initialQueue.length);
+      setSyncStatus(initialQueue.length > 0 ? "pending" : "idle");
+    }
+  }, [user?.uid]);
+
+  // Handle network online/offline events & periodic automatic self-aware merging
+  useEffect(() => {
+    const runSelfAwareSync = async () => {
+      if (!user || !navigator.onLine) return;
+      try {
+        const result = await dbService.performSelfAwareSync(user.uid, itemsRef.current, movesRef.current);
+        if (result && result.success) {
+          const itemsChanged = JSON.stringify(result.items) !== JSON.stringify(itemsRef.current);
+          const movesChanged = JSON.stringify(result.moves) !== JSON.stringify(movesRef.current);
+          if (itemsChanged) {
+            setItems(result.items);
+          }
+          if (movesChanged) {
+            setMoves(result.moves);
+          }
+        }
+      } catch (e) {
+        console.warn("Self-aware sync check failed silently:", e);
+      }
+    };
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      runSelfAwareSync();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    const interval = setInterval(() => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine) {
+        runSelfAwareSync();
+      }
+    }, 15000); // Trigger background sync check every 15s
+
+    // Run initial sync on startup
+    if (navigator.onLine) {
+      runSelfAwareSync();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      clearInterval(interval);
+    };
   }, [user?.uid]);
 
   // Sync state with dbService
@@ -119,34 +191,36 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    try {
-      // Attempt to save directly to Supabase cloud database
-      const success = await dbService.addInventoryItem(newItem);
-      if (success) {
-        console.log("Successfully stored item in Supabase 'inventory' table.");
-      } else {
-        console.warn("Supabase insert returned false. Saving to secure local browser storage fallback.");
-      }
-    } catch (err) {
-      console.error("Supabase connection failed. Saving to secure local browser storage fallback:", err);
-    }
-
-    // Always update local React state (which syncs to localStorage) for resilient offline availability
+    // Immediate Local State Update for Zero-Latency responsiveness
     setItems((prev) => [...prev, newItem]);
+
+    // Add to Offline Queue for seamless background cloud syncing
+    dbService.addToSyncQueue(user.uid, "UPSERT_ITEM", newItem.id, newItem);
   };
 
   // Actions of local database: Modify/update inventory items
   const handleUpdateItem = async (itemId: string, updates: Partial<Item>) => {
-    setItems((prev) =>
-      prev.map((item) => (item.id === itemId ? { ...item, ...updates } : item))
-    );
+    if (!user) return;
+    setItems((prev) => {
+      const updated = prev.map((item) => (item.id === itemId ? { ...item, ...updates } : item));
+      const targetItem = updated.find((item) => item.id === itemId);
+      if (targetItem) {
+        dbService.addToSyncQueue(user.uid, "UPSERT_ITEM", itemId, targetItem);
+      }
+      return updated;
+    });
   };
 
   // Actions of local database: delete inventory items
   const handleDeleteItem = async (itemId: string) => {
-    // Delete stock movements linked to this item to keep reporting integrity
+    if (!user) return;
+    
+    // Immediate Local State Update
     setMoves((prev) => prev.filter((m) => m.itemId !== itemId));
     setItems((prev) => prev.filter((item) => item.id !== itemId));
+
+    // Register deletions in the Offline Sync Queue
+    dbService.addToSyncQueue(user.uid, "DELETE_ITEM", itemId, { id: itemId });
   };
 
   // Actions of local database: Book atomic Stock movements + auto updates Item stocks
@@ -163,15 +237,21 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    // Calculate Adjusted Item Stock Quantities
     const newQty = moveData.type === "Stock In" 
       ? targetItem.qty + moveData.qty 
       : Math.max(0, targetItem.qty - moveData.qty);
 
+    const updatedItem = { ...targetItem, qty: newQty };
+
+    // Immediate Local Updates
     setItems((prev) =>
-      prev.map((item) => (item.id === moveData.itemId ? { ...item, qty: newQty } : item))
+      prev.map((item) => (item.id === moveData.itemId ? updatedItem : item))
     );
     setMoves((prev) => [newMove, ...prev]);
+
+    // Push transactions sequentially to Sync Queue
+    dbService.addToSyncQueue(user.uid, "INSERT_MOVE", newMove.id, newMove);
+    dbService.addToSyncQueue(user.uid, "UPSERT_ITEM", updatedItem.id, updatedItem);
   };
 
   const handleLogout = () => {
@@ -248,6 +328,31 @@ export default function App() {
 
                 {/* User Profile Action Details */}
                 <div className="flex items-center gap-3">
+                  {/* Connection / Sync Badge */}
+                  <div className="flex items-center text-xs select-none transition-all duration-300">
+                    {!isOnline ? (
+                      <span className="flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
+                        <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-pulse" />
+                        Offline Mode
+                      </span>
+                    ) : syncStatus === "syncing" ? (
+                      <span className="flex items-center gap-1 bg-sky-50 border border-sky-200 text-sky-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
+                        <RefreshCw size={10} className="animate-spin text-sky-500" />
+                        Syncing... ({pendingCount})
+                      </span>
+                    ) : pendingCount > 0 ? (
+                      <span className="flex items-center gap-1 bg-yellow-50 border border-yellow-200 text-yellow-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
+                        <span className="h-1.5 w-1.5 bg-yellow-500 rounded-full animate-ping" />
+                        Pending Sync ({pendingCount})
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
+                        <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full" />
+                        Cloud Connected
+                      </span>
+                    )}
+                  </div>
+
                   <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100/70 p-1.5 rounded-full px-3 border border-slate-200/50">
                     <UserIcon size={12} className="text-emerald-600" />
                     <span className="truncate max-w-[120px] font-bold text-slate-700">{user.storeName || "Merchant"}</span>
@@ -383,7 +488,7 @@ export default function App() {
             {/* Interactive Gemini Chat Assistant (Float) */}
             {activeTab === "dashboard" && (
               <div className="print:hidden">
-                <ChatBot items={items} moves={moves} />
+                <ChatBot items={items} moves={moves} isOnline={isOnline} />
               </div>
             )}
 

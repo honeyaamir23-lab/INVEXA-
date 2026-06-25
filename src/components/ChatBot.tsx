@@ -6,9 +6,10 @@ import { motion, AnimatePresence } from "motion/react";
 interface ChatBotProps {
   items: Item[];
   moves: StockMove[];
+  isOnline: boolean;
 }
 
-export default function ChatBot({ items, moves }: ChatBotProps) {
+export default function ChatBot({ items, moves, isOnline }: ChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -162,20 +163,24 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
 
   return (
     <div>
-      {/* WhatsApp-Style Sleek Green Floating Circle Button */}
+      {/* WhatsApp-Style Sleek Floating Circle Button */}
       <motion.button
         id="chatbot-toggle-button"
         ref={fabBtnRef}
         whileHover={{ scale: 1.08 }}
         whileTap={{ scale: 0.92 }}
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-[84px] right-5 h-12 w-12 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded-full flex items-center justify-center shadow-2xl transition z-50 cursor-pointer border-2 border-white"
-        title="Ask Gemini Assistant"
+        className={`fixed bottom-[84px] right-5 h-12 w-12 rounded-full flex items-center justify-center shadow-2xl transition z-50 cursor-pointer border-2 border-white ${
+          isOnline ? "bg-[#25D366] hover:bg-[#20ba5a]" : "bg-slate-400 hover:bg-slate-500"
+        }`}
+        title={isOnline ? "Ask Gemini Assistant" : "Gemini Assistant (Offline)"}
       >
         {isOpen ? <X size={20} /> : <MessageCircle size={22} className="fill-white/10" />}
         {!isOpen && (
-          <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-amber-500 rounded-full flex items-center justify-center text-[7px] text-white font-extrabold animate-pulse border border-white">
-            AI
+          <span className={`absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full flex items-center justify-center text-[7px] text-white font-extrabold border border-white ${
+            isOnline ? "bg-amber-500 animate-pulse" : "bg-slate-500"
+          }`}>
+            {isOnline ? "AI" : "OFF"}
           </span>
         )}
       </motion.button>
@@ -295,30 +300,37 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
             )}
 
             {/* Footer Input Bar */}
-            <div className="p-2 border-t border-slate-100 bg-white flex items-end gap-2 shrink-0">
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                placeholder="Ask about inventory, value..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                disabled={loading}
-                className="flex-grow px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#25D366] rounded-xl text-[11px] duration-150 text-slate-900 resize-none max-h-[120px] overflow-y-auto scrollbar-none"
-              />
-              <button
-                onClick={() => handleSendMessage()}
-                disabled={loading || !input.trim()}
-                className="h-8 w-8 bg-[#25D366] hover:bg-[#20ba5a] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition duration-150 shrink-0 cursor-pointer shadow-md self-end"
-              >
-                <Send size={13} />
-              </button>
-            </div>
+            {!isOnline ? (
+              <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-1.5 shrink-0 text-slate-500 font-bold text-[10px]">
+                <AlertCircle size={12} className="text-amber-500 shrink-0" />
+                <span>🔌 AI Chatbot is offline. Reconnect to resume.</span>
+              </div>
+            ) : (
+              <div className="p-2 border-t border-slate-100 bg-white flex items-end gap-2 shrink-0">
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  placeholder="Ask about inventory, value..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  disabled={loading}
+                  className="flex-grow px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#25D366] rounded-xl text-[11px] duration-150 text-slate-900 resize-none max-h-[120px] overflow-y-auto scrollbar-none"
+                />
+                <button
+                  onClick={() => handleSendMessage()}
+                  disabled={loading || !input.trim()}
+                  className="h-8 w-8 bg-[#25D366] hover:bg-[#20ba5a] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition duration-150 shrink-0 cursor-pointer shadow-md self-end"
+                >
+                  <Send size={13} />
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

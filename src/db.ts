@@ -1,6 +1,15 @@
 import { Item, StockMove, LocalUser } from "./types";
 import { createClient } from "@supabase/supabase-js";
 
+export interface SyncTask {
+  id: string;
+  userId: string;
+  action: "UPSERT_ITEM" | "DELETE_ITEM" | "INSERT_MOVE" | "UPSERT_WORKSPACE";
+  targetId: string;
+  payload: any;
+  createdAt: string;
+}
+
 /**
  * INVEXA Enterprise Database Service
  * 
@@ -18,6 +27,353 @@ import { createClient } from "@supabase/supabase-js";
 class DatabaseService {
   private hasSupabaseKeys: boolean = false;
   private supabaseClient: any = null;
+  private syncStatusListener: ((status: "idle" | "pending" | "syncing", pendingCount: number) => void) | null = null;
+  private isSyncing = false;
+
+  // =========================================================================
+  // OFFLINE QUEUE METHODS
+  // =========================================================================
+
+  public getSyncQueue(userId: string): SyncTask[] {
+    try {
+      const saved = localStorage.getItem(`store_sync_queue_${userId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  private saveSyncQueue(userId: string, queue: SyncTask[]): void {
+    localStorage.setItem(`store_sync_queue_${userId}`, JSON.stringify(queue));
+  }
+
+  public registerSyncStatusListener(listener: (status: "idle" | "pending" | "syncing", pendingCount: number) => void) {
+    this.syncStatusListener = listener;
+  }
+
+  public addToSyncQueue(userId: string, action: SyncTask["action"], targetId: string, payload: any): void {
+    const queue = this.getSyncQueue(userId);
+    
+    // Deduplicate
+    let filteredQueue = queue;
+    if (action === "DELETE_ITEM") {
+      filteredQueue = queue.filter(t => !(t.targetId === targetId && t.action === "UPSERT_ITEM"));
+    } else if (action === "UPSERT_ITEM") {
+      filteredQueue = queue.filter(t => !(t.targetId === targetId && t.action === "UPSERT_ITEM"));
+    } else if (action === "UPSERT_WORKSPACE") {
+      filteredQueue = queue.filter(t => t.action !== "UPSERT_WORKSPACE");
+    }
+
+    const newTask: SyncTask = {
+      id: Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
+      userId,
+      action,
+      targetId,
+      payload,
+      createdAt: new Date().toISOString()
+    };
+
+    filteredQueue.push(newTask);
+    this.saveSyncQueue(userId, filteredQueue);
+    
+    if (this.syncStatusListener) {
+      this.syncStatusListener("pending", filteredQueue.length);
+    }
+
+    this.triggerSync(userId);
+  }
+
+  public triggerSync(userId: string) {
+    this.syncPendingQueue(userId).catch(e => console.warn("Background sync trigger failed:", e));
+  }
+
+  public async syncPendingQueue(userId: string, onProgress?: (status: string) => void): Promise<boolean> {
+    if (this.isSyncing) return false;
+    
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
+      return false;
+    }
+
+    const isConn = await this.checkConnection();
+    if (!isConn) {
+      if (this.syncStatusListener) {
+        const queueLength = this.getSyncQueue(userId).length;
+        this.syncStatusListener(queueLength > 0 ? "pending" : "idle", queueLength);
+      }
+      return false;
+    }
+
+    const queue = this.getSyncQueue(userId);
+    if (queue.length === 0) {
+      if (this.syncStatusListener) {
+        this.syncStatusListener("idle", 0);
+      }
+      return true;
+    }
+
+    this.isSyncing = true;
+    if (this.syncStatusListener) {
+      this.syncStatusListener("syncing", queue.length);
+    }
+    console.log(`Starting background sync for user ${userId}. Queue length: ${queue.length}`);
+    onProgress?.(`Syncing ${queue.length} pending actions...`);
+
+    const client = this.supabaseClient;
+    let successCount = 0;
+
+    for (const task of queue) {
+      try {
+        let success = false;
+        if (task.action === "UPSERT_ITEM") {
+          const item = task.payload;
+          const row = {
+            id: item.id,
+            name: item.name,
+            qty: item.qty,
+            unit: item.unit,
+            minQty: item.minQty,
+            min_qty: item.minQty,
+            reorderQty: item.reorderQty,
+            reorder_qty: item.reorderQty,
+            price: item.price,
+            costPrice: item.costPrice,
+            cost_price: item.costPrice,
+            category: item.category,
+            supplier: item.supplier,
+            brand: item.brand,
+            location: item.location,
+            sku: item.sku,
+            expiryDate: item.expiryDate,
+            expiry_date: item.expiryDate,
+            userId: item.userId,
+            user_id: item.userId,
+            createdAt: item.createdAt,
+            created_at: item.createdAt
+          };
+          const { error } = await client.from("inventory").upsert([row]);
+          if (!error) success = true;
+          else console.warn("Sync UPSERT_ITEM failed:", error);
+        } else if (task.action === "DELETE_ITEM") {
+          const { error: itemErr } = await client.from("inventory").delete().eq("id", task.targetId);
+          const { error: movesErr } = await client.from("stock_moves").delete().eq("itemId", task.targetId);
+          if (!itemErr) success = true;
+          else console.warn("Sync DELETE_ITEM failed:", itemErr);
+        } else if (task.action === "INSERT_MOVE") {
+          const move = task.payload;
+          const row = {
+            id: move.id,
+            userId: move.userId,
+            user_id: move.userId,
+            itemId: move.itemId,
+            item_id: move.itemId,
+            itemName: move.itemName,
+            item_name: move.itemName,
+            qty: move.qty,
+            type: move.type,
+            reason: move.reason,
+            date: move.date,
+            notes: move.notes,
+            price: move.price,
+            createdAt: move.createdAt,
+            created_at: move.createdAt
+          };
+          const { error } = await client.from("stock_moves").upsert([row]);
+          if (!error) success = true;
+          else console.warn("Sync INSERT_MOVE failed:", error);
+        } else if (task.action === "UPSERT_WORKSPACE") {
+          const user = task.payload;
+          const row = {
+            id: user.uid,
+            uid: user.uid,
+            email: user.email,
+            ownerName: user.ownerName,
+            owner_name: user.ownerName,
+            phone: user.phone,
+            storeName: user.storeName,
+            store_name: user.storeName,
+            businessType: user.businessType,
+            business_type: user.businessType,
+            pinCode: user.pinCode,
+            pin_code: user.pinCode
+          };
+          const { error } = await client.from("workspaces").upsert([row]);
+          let error2 = null;
+          if (error) {
+            const { error: err2 } = await client.from("store_users").upsert([row]);
+            error2 = err2;
+          }
+          if (!error || !error2) success = true;
+          else console.warn("Sync UPSERT_WORKSPACE failed:", error, error2);
+        }
+
+        if (success) {
+          successCount++;
+          const currentQueue = this.getSyncQueue(userId);
+          const updatedQueue = currentQueue.filter(t => t.id !== task.id);
+          this.saveSyncQueue(userId, updatedQueue);
+          if (this.syncStatusListener) {
+            this.syncStatusListener("syncing", updatedQueue.length);
+          }
+        } else {
+          console.warn("Failed to sync task, pausing queue processing:", task);
+          break;
+        }
+      } catch (err) {
+        console.error("Error executing task sync:", err);
+        break;
+      }
+    }
+
+    this.isSyncing = false;
+    const finalQueue = this.getSyncQueue(userId);
+    console.log(`Background sync complete. Success: ${successCount}. Remaining: ${finalQueue.length}`);
+    
+    if (this.syncStatusListener) {
+      this.syncStatusListener(finalQueue.length === 0 ? "idle" : "pending", finalQueue.length);
+    }
+
+    return finalQueue.length === 0;
+  }
+
+  /**
+   * Performs an intelligent, self-aware background synchronization and merge.
+   * 1. Checks connection.
+   * 2. Flushes any pending offline sync queue.
+   * 3. Fetches latest cloud items and stock moves.
+   * 4. Merges them with local state using a highly robust "flushed cloud + queue overlay" strategy.
+   * 5. Updates local storage.
+   * 6. Returns the merged datasets to update React state silently.
+   */
+  public async performSelfAwareSync(
+    userId: string,
+    localItems: Item[],
+    localMoves: StockMove[]
+  ): Promise<{ items: Item[]; moves: StockMove[]; success: boolean } | null> {
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
+      return null;
+    }
+
+    const connected = await this.checkConnection();
+    if (!connected) {
+      return null;
+    }
+
+    // First, flush the queue to make sure all local offline edits are up in the cloud
+    const queue = this.getSyncQueue(userId);
+    if (queue.length > 0) {
+      const syncSuccess = await this.syncPendingQueue(userId);
+      if (!syncSuccess) {
+        // Queue is not fully flushed (maybe partial connection issue), do not overwrite local state yet
+        console.log("Self-aware sync: queue flush is still in progress or partially failed. Postponing full merge.");
+        return null;
+      }
+    }
+
+    try {
+      // Fetch latest items and moves from Supabase
+      const [itemsResult, movesResult] = await Promise.all([
+        this.supabaseClient.from("inventory").select("*").eq("userId", userId),
+        this.supabaseClient.from("stock_moves").select("*").eq("userId", userId)
+      ]);
+
+      if (itemsResult.error || movesResult.error) {
+        console.warn("Self-aware sync fetch error:", itemsResult.error, movesResult.error);
+        return null;
+      }
+
+      const rawCloudItems = itemsResult.data || [];
+      const rawCloudMoves = movesResult.data || [];
+
+      // Map cloud items to standard type
+      const cloudItems: Item[] = rawCloudItems.map((row: any) => ({
+        id: row.id,
+        userId: row.userId || row.user_id,
+        name: row.name,
+        qty: row.qty,
+        unit: row.unit,
+        price: row.price,
+        minQty: row.minQty || row.min_qty,
+        reorderQty: row.reorderQty || row.reorder_qty,
+        costPrice: row.costPrice || row.cost_price,
+        category: row.category,
+        supplier: row.supplier,
+        brand: row.brand,
+        location: row.location,
+        sku: row.sku,
+        expiryDate: row.expiryDate || row.expiry_date,
+        createdAt: row.createdAt || row.created_at
+      })).filter((item: Item) => !item.id.startsWith("demo-"));
+
+      // Map cloud moves to standard type
+      const cloudMoves: StockMove[] = rawCloudMoves.map((row: any) => ({
+        id: row.id,
+        userId: row.userId || row.user_id,
+        itemId: row.itemId || row.item_id,
+        itemName: row.itemName || row.item_name,
+        qty: row.qty,
+        type: row.type,
+        reason: row.reason,
+        date: row.date,
+        notes: row.notes,
+        price: row.price,
+        createdAt: row.createdAt || row.created_at
+      })).filter((m: StockMove) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
+
+      // -----------------------------------------------------------------
+      // INTELLIGENT MERGING WITH QUEUE OVERLAYS
+      // Since our sync queue was flushed, cloudItems represents the absolute
+      // truth (including other devices), and we overlay any *newly* queued actions.
+      // -----------------------------------------------------------------
+      const currentQueue = this.getSyncQueue(userId);
+
+      // Merge items
+      const itemMap = new Map<string, Item>();
+      for (const item of cloudItems) {
+        itemMap.set(item.id, item);
+      }
+
+      // Overlay any newly added queue items that occurred since flush
+      for (const task of currentQueue) {
+        if (task.action === "UPSERT_ITEM") {
+          itemMap.set(task.targetId, task.payload);
+        } else if (task.action === "DELETE_ITEM") {
+          itemMap.delete(task.targetId);
+        }
+      }
+
+      const mergedItems = Array.from(itemMap.values());
+
+      // Merge stock moves
+      const moveMap = new Map<string, StockMove>();
+      for (const move of cloudMoves) {
+        moveMap.set(move.id, move);
+      }
+
+      for (const task of currentQueue) {
+        if (task.action === "INSERT_MOVE") {
+          moveMap.set(task.targetId, task.payload);
+        }
+      }
+
+      const mergedMoves = Array.from(moveMap.values());
+
+      // Sort moves reverse-chronologically so reporting stays accurate
+      mergedMoves.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Persist merged sets to localStorage
+      localStorage.setItem(`store_items_${userId}`, JSON.stringify(mergedItems));
+      localStorage.setItem(`store_moves_${userId}`, JSON.stringify(mergedMoves));
+
+      return {
+        items: mergedItems,
+        moves: mergedMoves,
+        success: true
+      };
+    } catch (e) {
+      console.error("Critical error in performSelfAwareSync:", e);
+      return null;
+    }
+  }
 
   private getBaseUrl(): string {
     const origin = window.location.origin;
@@ -115,6 +471,47 @@ class DatabaseService {
    * Get list of all registered workspaces/users from the server
    */
   public async getUsersList(): Promise<LocalUser[]> {
+    // 1. Direct Cloud Sync: Query Supabase directly if active
+    if (this.hasSupabaseKeys && this.supabaseClient) {
+      try {
+        let fetchedData = null;
+        let fetchError = null;
+
+        const { data, error } = await this.supabaseClient
+          .from("workspaces")
+          .select("*");
+        
+        if (!error && data) {
+          fetchedData = data;
+        } else {
+          // Fallback to store_users table if workspaces table is absent
+          const { data: data2, error: error2 } = await this.supabaseClient
+            .from("store_users")
+            .select("*");
+          if (!error2 && data2) {
+            fetchedData = data2;
+          } else {
+            fetchError = error || error2;
+          }
+        }
+
+        if (!fetchError && fetchedData && Array.isArray(fetchedData)) {
+          return fetchedData.map((row: any) => ({
+            uid: row.uid || row.id || "",
+            email: row.email || "",
+            ownerName: row.ownerName || row.owner_name || "",
+            phone: row.phone || "",
+            storeName: row.storeName || row.store_name || "",
+            businessType: row.businessType || row.business_type || "",
+            pinCode: (row.pinCode || row.pin_code || "").toString().trim()
+          }));
+        }
+      } catch (e) {
+        console.warn("Failed to fetch workspaces list from Supabase:", e);
+      }
+    }
+
+    // 2. Query fallback: Central Server Database sync
     try {
       const serverUsers = await this.serverFetch("/api/db/users");
       if (serverUsers && Array.isArray(serverUsers)) {
@@ -155,8 +552,13 @@ class DatabaseService {
         method: "POST",
         body: JSON.stringify(user)
       });
+
+      // ALSO queue persist to Supabase directly if active
+      if (this.hasSupabaseKeys && this.supabaseClient) {
+        this.addToSyncQueue(user.uid, "UPSERT_WORKSPACE", user.uid, user);
+      }
     } catch (error) {
-      console.error("Failed to save workspace user on server:", error);
+      console.error("Failed to save workspace user:", error);
     }
   }
 
@@ -167,7 +569,56 @@ class DatabaseService {
     const cleanPhone = phone.trim();
     const cleanPin = pin.trim();
 
-    // Direct central server database lookup
+    // 1. Direct Supabase Lookup if active
+    if (this.hasSupabaseKeys && this.supabaseClient) {
+      try {
+        let fetchedData = null;
+        let fetchError = null;
+
+        const { data, error } = await this.supabaseClient
+          .from("workspaces")
+          .select("*")
+          .eq("phone", cleanPhone);
+        
+        if (!error && data && data.length > 0) {
+          fetchedData = data;
+        } else {
+          // Fallback to store_users table if workspaces is empty or fails
+          const { data: data2, error: error2 } = await this.supabaseClient
+            .from("store_users")
+            .select("*")
+            .eq("phone", cleanPhone);
+          
+          if (!error2 && data2 && data2.length > 0) {
+            fetchedData = data2;
+          } else {
+            fetchError = error || error2;
+          }
+        }
+
+        if (!fetchError && fetchedData && fetchedData.length > 0) {
+          const found = fetchedData[0];
+          const userPin = (found.pinCode || found.pin_code || "").toString().trim();
+          if (userPin === cleanPin) {
+            const user: LocalUser = {
+              uid: found.uid || found.id || "",
+              email: found.email || "",
+              ownerName: found.ownerName || found.owner_name || "",
+              phone: found.phone || "",
+              storeName: found.storeName || found.store_name || "",
+              businessType: found.businessType || found.business_type || "",
+              pinCode: userPin
+            };
+            localStorage.setItem("store_user", JSON.stringify(user));
+            return user;
+          }
+        }
+      } catch (e) {
+        console.warn("Supabase direct auth lookup failed:", e);
+      }
+    }
+
+    // 2. Direct central server database lookup
     try {
       const serverUsers = await this.serverFetch("/api/db/users");
       if (serverUsers && Array.isArray(serverUsers)) {
@@ -228,43 +679,57 @@ class DatabaseService {
       const saved = localStorage.getItem(`store_items_${userId}`);
       let items: Item[] = saved ? JSON.parse(saved) : [];
 
-      // 1. Direct Cloud Sync: Query Supabase directly if active
-      if (this.hasSupabaseKeys && this.supabaseClient) {
-        try {
-          const { data, error } = await this.supabaseClient
-            .from("inventory")
-            .select("*")
-            .eq("userId", userId);
-          if (!error && data) {
-            const cloudItems: Item[] = data.map((row: any) => ({
-              id: row.id,
-              userId: row.userId || row.user_id,
-              name: row.name,
-              qty: row.qty,
-              unit: row.unit,
-              price: row.price,
-              minQty: row.minQty || row.min_qty,
-              reorderQty: row.reorderQty || row.reorder_qty,
-              costPrice: row.costPrice || row.cost_price,
-              category: row.category,
-              createdAt: row.createdAt || row.created_at
-            }));
-            const filteredCloudItems = cloudItems.filter((item) => !item.id.startsWith("demo-"));
-            localStorage.setItem(`store_items_${userId}`, JSON.stringify(filteredCloudItems));
-            return filteredCloudItems;
-          }
-        } catch (e) {
-          console.warn("Failed to direct fetch items from Supabase:", e);
+      if (!this.hasSupabaseKeys || !this.supabaseClient) {
+        return items;
+      }
+
+      const connected = await this.checkConnection();
+      if (!connected) {
+        return items;
+      }
+
+      // Sync any pending items first to avoid overwriting newer local offline edits
+      const queue = this.getSyncQueue(userId);
+      if (queue.length > 0) {
+        const syncSuccess = await this.syncPendingQueue(userId);
+        if (!syncSuccess) {
+          return items;
         }
       }
 
-      // 2. Query fallback: Central Server Database sync
-      const serverData = await this.serverFetch(`/api/db/sync/${userId}`);
-      if (serverData && Array.isArray(serverData.items)) {
-        const filteredServerItems = serverData.items.filter((item: any) => !item.id.startsWith("demo-"));
-        localStorage.setItem(`store_items_${userId}`, JSON.stringify(filteredServerItems));
-        return filteredServerItems;
+      // Fetch latest from Supabase
+      try {
+        const { data, error } = await this.supabaseClient
+          .from("inventory")
+          .select("*")
+          .eq("userId", userId);
+        if (!error && data) {
+          const cloudItems: Item[] = data.map((row: any) => ({
+            id: row.id,
+            userId: row.userId || row.user_id,
+            name: row.name,
+            qty: row.qty,
+            unit: row.unit,
+            price: row.price,
+            minQty: row.minQty || row.min_qty,
+            reorderQty: row.reorderQty || row.reorder_qty,
+            costPrice: row.costPrice || row.cost_price,
+            category: row.category,
+            supplier: row.supplier,
+            brand: row.brand,
+            location: row.location,
+            sku: row.sku,
+            expiryDate: row.expiryDate || row.expiry_date,
+            createdAt: row.createdAt || row.created_at
+          }));
+          const filteredCloudItems = cloudItems.filter((item) => !item.id.startsWith("demo-"));
+          localStorage.setItem(`store_items_${userId}`, JSON.stringify(filteredCloudItems));
+          return filteredCloudItems;
+        }
+      } catch (e) {
+        console.warn("Failed to direct fetch items from Supabase:", e);
       }
+
       return items;
     } catch (error) {
       console.error("Failed to parse items from storage:", error);
@@ -280,53 +745,11 @@ class DatabaseService {
     try {
       localStorage.setItem(`store_items_${userId}`, JSON.stringify(cleanItems));
 
-      // Replicate to Server
-      await this.serverFetch("/api/db/sync", {
+      // Asynchronously replicate a local copy to server
+      this.serverFetch("/api/db/sync", {
         method: "POST",
         body: JSON.stringify({ userId, items: cleanItems })
-      });
-
-      // Replicate to Supabase Directly (Upsert/Replace strategy)
-      if (this.hasSupabaseKeys && this.supabaseClient) {
-        try {
-          // Delete old entries for the user
-          await this.supabaseClient
-            .from("inventory")
-            .delete()
-            .eq("userId", userId);
-
-          if (cleanItems.length > 0) {
-            const rows = cleanItems.map(item => ({
-              id: item.id,
-              name: item.name,
-              qty: item.qty,
-              unit: item.unit,
-              minQty: item.minQty,
-              min_qty: item.minQty,
-              reorderQty: item.reorderQty,
-              reorder_qty: item.reorderQty,
-              price: item.price,
-              costPrice: item.costPrice,
-              cost_price: item.costPrice,
-              category: item.category,
-              userId: item.userId,
-              user_id: item.userId,
-              createdAt: item.createdAt,
-              created_at: item.createdAt
-            }));
-
-            const { error } = await this.supabaseClient
-              .from("inventory")
-              .insert(rows);
-
-            if (error) {
-              console.warn("Supabase direct inventory insert issue:", error.message);
-            }
-          }
-        } catch (e) {
-          console.warn("Failed direct items sync to Supabase:", e);
-        }
-      }
+      }).catch(() => {});
     } catch (error) {
       console.error("Failed to write items to storage:", error);
     }
@@ -344,42 +767,52 @@ class DatabaseService {
       const saved = localStorage.getItem(`store_moves_${userId}`);
       let moves: StockMove[] = saved ? JSON.parse(saved) : [];
 
-      // 1. Direct Cloud Sync: Query Supabase directly if active
-      if (this.hasSupabaseKeys && this.supabaseClient) {
-        try {
-          const { data, error } = await this.supabaseClient
-            .from("stock_moves")
-            .select("*")
-            .eq("userId", userId);
-          if (!error && data) {
-            const cloudMoves: StockMove[] = data.map((row: any) => ({
-              id: row.id,
-              userId: row.userId || row.user_id,
-              itemId: row.itemId || row.item_id,
-              itemName: row.itemName || row.item_name,
-              qty: row.qty,
-              type: row.type,
-              reason: row.reason,
-              date: row.date,
-              notes: row.notes,
-              createdAt: row.createdAt || row.created_at
-            }));
-            const filteredCloudMoves = cloudMoves.filter((m) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
-            localStorage.setItem(`store_moves_${userId}`, JSON.stringify(filteredCloudMoves));
-            return filteredCloudMoves;
-          }
-        } catch (e) {
-          console.warn("Failed to direct fetch moves from Supabase:", e);
+      if (!this.hasSupabaseKeys || !this.supabaseClient) {
+        return moves;
+      }
+
+      const connected = await this.checkConnection();
+      if (!connected) {
+        return moves;
+      }
+
+      // Sync pending moves first
+      const queue = this.getSyncQueue(userId);
+      if (queue.length > 0) {
+        const syncSuccess = await this.syncPendingQueue(userId);
+        if (!syncSuccess) {
+          return moves;
         }
       }
 
-      // 2. Query fallback: Central Server Database sync
-      const serverData = await this.serverFetch(`/api/db/sync/${userId}`);
-      if (serverData && Array.isArray(serverData.moves)) {
-        const filteredServerMoves = serverData.moves.filter((m: any) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
-        localStorage.setItem(`store_moves_${userId}`, JSON.stringify(filteredServerMoves));
-        return filteredServerMoves;
+      // Fetch from Supabase
+      try {
+        const { data, error } = await this.supabaseClient
+          .from("stock_moves")
+          .select("*")
+          .eq("userId", userId);
+        if (!error && data) {
+          const cloudMoves: StockMove[] = data.map((row: any) => ({
+            id: row.id,
+            userId: row.userId || row.user_id,
+            itemId: row.itemId || row.item_id,
+            itemName: row.itemName || row.item_name,
+            qty: row.qty,
+            type: row.type,
+            reason: row.reason,
+            date: row.date,
+            notes: row.notes,
+            price: row.price,
+            createdAt: row.createdAt || row.created_at
+          }));
+          const filteredCloudMoves = cloudMoves.filter((m) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
+          localStorage.setItem(`store_moves_${userId}`, JSON.stringify(filteredCloudMoves));
+          return filteredCloudMoves;
+        }
+      } catch (e) {
+        console.warn("Failed to direct fetch moves from Supabase:", e);
       }
+
       return moves;
     } catch (error) {
       console.error("Failed to parse stock movements from storage:", error);
@@ -396,49 +829,10 @@ class DatabaseService {
       localStorage.setItem(`store_moves_${userId}`, JSON.stringify(cleanMoves));
 
       // Replicate to Server
-      await this.serverFetch("/api/db/sync", {
+      this.serverFetch("/api/db/sync", {
         method: "POST",
         body: JSON.stringify({ userId, moves: cleanMoves })
-      });
-
-      // Replicate to Supabase Directly (Upsert/Replace strategy)
-      if (this.hasSupabaseKeys && this.supabaseClient) {
-        try {
-          await this.supabaseClient
-            .from("stock_moves")
-            .delete()
-            .eq("userId", userId);
-
-          if (cleanMoves.length > 0) {
-            const rows = cleanMoves.map(move => ({
-              id: move.id,
-              userId: move.userId,
-              user_id: move.userId,
-              itemId: move.itemId,
-              item_id: move.itemId,
-              itemName: move.itemName,
-              item_name: move.itemName,
-              qty: move.qty,
-              type: move.type,
-              reason: move.reason,
-              date: move.date,
-              notes: move.notes,
-              createdAt: move.createdAt,
-              created_at: move.createdAt
-            }));
-
-            const { error } = await this.supabaseClient
-              .from("stock_moves")
-              .insert(rows);
-
-            if (error) {
-              console.warn("Supabase direct stock_moves insert issue:", error.message);
-            }
-          }
-        } catch (e) {
-          console.warn("Failed direct stock moves sync to Supabase:", e);
-        }
-      }
+      }).catch(() => {});
     } catch (error) {
       console.error("Failed to write stock moves to storage:", error);
     }
