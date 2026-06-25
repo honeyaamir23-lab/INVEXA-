@@ -35,6 +35,12 @@ class DatabaseService {
   // =========================================================================
 
   public getSyncQueue(userId: string): SyncTask[] {
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
+      try {
+        localStorage.removeItem(`store_sync_queue_${userId}`);
+      } catch (e) {}
+      return [];
+    }
     try {
       const saved = localStorage.getItem(`store_sync_queue_${userId}`);
       return saved ? JSON.parse(saved) : [];
@@ -44,6 +50,7 @@ class DatabaseService {
   }
 
   private saveSyncQueue(userId: string, queue: SyncTask[]): void {
+    if (!this.hasSupabaseKeys || !this.supabaseClient) return;
     localStorage.setItem(`store_sync_queue_${userId}`, JSON.stringify(queue));
   }
 
@@ -52,6 +59,12 @@ class DatabaseService {
   }
 
   public addToSyncQueue(userId: string, action: SyncTask["action"], targetId: string, payload: any): void {
+    if (!this.hasSupabaseKeys || !this.supabaseClient) {
+      if (this.syncStatusListener) {
+        this.syncStatusListener("idle", 0);
+      }
+      return;
+    }
     const queue = this.getSyncQueue(userId);
     
     // Deduplicate
@@ -394,8 +407,12 @@ class DatabaseService {
 
   constructor() {
     // Check for client-side Supabase credentials
-    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "https://yveulmixiapooghegkxq.supabase.co";
-    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "sb_publishable__vMM-QxRopYwtTRH0cd74Q_FC0pxAhy";
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+
+    // Only configure Supabase if the environment variables are explicitly defined and not empty/placeholder
+    const supabaseUrl = envUrl && envUrl !== "YOUR_SUPABASE_URL" && !envUrl.startsWith("YOUR_") ? envUrl : null;
+    const supabaseKey = envKey && envKey !== "YOUR_SUPABASE_ANON_KEY" && !envKey.startsWith("YOUR_") ? envKey : null;
 
     if (supabaseUrl && supabaseKey) {
       this.hasSupabaseKeys = true;
