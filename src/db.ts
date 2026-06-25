@@ -406,13 +406,16 @@ class DatabaseService {
   }
 
   constructor() {
-    // Check for client-side Supabase credentials
+    // Check for client-side Supabase credentials with hardcoded secure fallbacks for live seamless zero-config deployment
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
     const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
 
-    // Only configure Supabase if the environment variables are explicitly defined and not empty/placeholder
-    const supabaseUrl = envUrl && envUrl !== "YOUR_SUPABASE_URL" && !envUrl.startsWith("YOUR_") ? envUrl : null;
-    const supabaseKey = envKey && envKey !== "YOUR_SUPABASE_ANON_KEY" && !envKey.startsWith("YOUR_") ? envKey : null;
+    const fallbackUrl = "https://yveulmixiapooghegkxq.supabase.co";
+    const fallbackKey = "sb_publishable__vMM-QxRopYwtTRH0cd74Q_FC0pxAhy";
+
+    // Only configure Supabase if the environment variables are explicitly defined and not empty/placeholder, otherwise use fallback
+    const supabaseUrl = (envUrl && envUrl !== "YOUR_SUPABASE_URL" && !envUrl.startsWith("YOUR_")) ? envUrl : fallbackUrl;
+    const supabaseKey = (envKey && envKey !== "YOUR_SUPABASE_ANON_KEY" && !envKey.startsWith("YOUR_")) ? envKey : fallbackKey;
 
     if (supabaseUrl && supabaseKey) {
       this.hasSupabaseKeys = true;
