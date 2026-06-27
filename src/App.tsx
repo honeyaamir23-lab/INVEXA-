@@ -121,37 +121,66 @@ export default function App() {
     }
   }, [user?.uid]);
 
+  // Reusable background sync handler with quiet retry mechanism and no UI freezes
+  const triggerQuietSync = async (overrideUser?: LocalUser) => {
+    const activeUser = overrideUser || user;
+    if (!activeUser) return;
+    
+    try {
+      let retries = 2; // up to 2 retry attempts
+      let delay = 1000; // start with 1000ms delay
+      
+      const attemptSync = async (): Promise<boolean> => {
+        if (!navigator.onLine) {
+          setIsDbConnected(false);
+          return false;
+        }
+        try {
+          const connected = await dbService.checkConnection();
+          setIsDbConnected(connected);
+          if (!connected) return false;
+
+          const result = await dbService.performSelfAwareSync(activeUser.uid, itemsRef.current, movesRef.current);
+          if (result && result.success) {
+            const itemsChanged = JSON.stringify(result.items) !== JSON.stringify(itemsRef.current);
+            const movesChanged = JSON.stringify(result.moves) !== JSON.stringify(movesRef.current);
+            if (itemsChanged) {
+              setItems(result.items);
+            }
+            if (movesChanged) {
+              setMoves(result.moves);
+            }
+            return true;
+          }
+        } catch (err) {
+          // Quiet failure
+        }
+        return false;
+      };
+
+      let success = await attemptSync();
+      while (!success && retries > 0 && navigator.onLine) {
+        retries--;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay *= 1.5; // exponential backoff
+        success = await attemptSync();
+      }
+    } catch (e) {
+      // Quiet catch
+    }
+  };
+
+  // Unified tab navigation click handler triggering dynamic background sync
+  const handleNavigateTab = (tabName: string) => {
+    setActiveTab(tabName);
+    triggerQuietSync();
+  };
+
   // Handle network online/offline events & periodic automatic self-aware merging
   useEffect(() => {
-    const runSelfAwareSync = async () => {
-      if (!user || !navigator.onLine) {
-        setIsDbConnected(false);
-        return;
-      }
-      try {
-        const connected = await dbService.checkConnection();
-        setIsDbConnected(connected);
-        if (!connected) return;
-
-        const result = await dbService.performSelfAwareSync(user.uid, itemsRef.current, movesRef.current);
-        if (result && result.success) {
-          const itemsChanged = JSON.stringify(result.items) !== JSON.stringify(itemsRef.current);
-          const movesChanged = JSON.stringify(result.moves) !== JSON.stringify(movesRef.current);
-          if (itemsChanged) {
-            setItems(result.items);
-          }
-          if (movesChanged) {
-            setMoves(result.moves);
-          }
-        }
-      } catch (e) {
-        console.log("Self-aware sync check details (offline fallback):", e);
-      }
-    };
-
     const handleOnline = () => {
       setIsOnline(true);
-      runSelfAwareSync();
+      triggerQuietSync();
     };
     const handleOffline = () => {
       setIsOnline(false);
@@ -165,7 +194,7 @@ export default function App() {
       const online = navigator.onLine;
       setIsOnline(online);
       if (online) {
-        runSelfAwareSync();
+        triggerQuietSync();
       } else {
         setIsDbConnected(false);
       }
@@ -173,7 +202,7 @@ export default function App() {
 
     // Run initial sync on startup
     if (navigator.onLine) {
-      runSelfAwareSync();
+      triggerQuietSync();
     }
 
     return () => {
@@ -295,7 +324,7 @@ export default function App() {
   // Trigger modal inside Item page directly
   const triggerEditItemFromDashboard = (item: Item) => {
     setActiveEditItem(item);
-    setActiveTab("items");
+    handleNavigateTab("items");
   };
 
   return (
@@ -319,6 +348,7 @@ export default function App() {
                 setMoves(filteredMoves);
                 setUser(loggedInUser);
                 setActiveTab("dashboard");
+                triggerQuietSync(loggedInUser);
               }} 
             />
           </motion.div>
@@ -403,7 +433,7 @@ export default function App() {
                     <Dashboard
                       items={items}
                       moves={moves}
-                      onNavigateToTab={setActiveTab}
+                      onNavigateToTab={handleNavigateTab}
                       onEditItem={triggerEditItemFromDashboard}
                       isDbConnected={isDbConnected}
                       onLogout={handleLogout}
@@ -444,7 +474,7 @@ export default function App() {
               <div className="max-w-md mx-auto grid grid-cols-4 gap-2">
                 {/* Dashboard */}
                 <button
-                  onClick={() => setActiveTab("dashboard")}
+                  onClick={() => handleNavigateTab("dashboard")}
                   className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "dashboard" 
                       ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
@@ -458,7 +488,7 @@ export default function App() {
 
                 {/* Items */}
                 <button
-                  onClick={() => setActiveTab("items")}
+                  onClick={() => handleNavigateTab("items")}
                   className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "items" 
                       ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
@@ -472,7 +502,7 @@ export default function App() {
 
                 {/* Stock Moves */}
                 <button
-                  onClick={() => setActiveTab("moves")}
+                  onClick={() => handleNavigateTab("moves")}
                   className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "moves" 
                       ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 
@@ -486,7 +516,7 @@ export default function App() {
 
                 {/* Reports */}
                 <button
-                  onClick={() => setActiveTab("reports")}
+                  onClick={() => handleNavigateTab("reports")}
                   className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
                     activeTab === "reports" 
                       ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black shadow-lg shadow-emerald-600/15 scale-[1.03]" 

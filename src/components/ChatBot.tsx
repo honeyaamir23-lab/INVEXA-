@@ -8,7 +8,7 @@ import { dbService } from "../db";
 const getLocalAssistantResponse = (userText: string, items: Item[], moves: StockMove[]): string => {
   const query = userText.toLowerCase().trim();
   const isUrduScript = /[\u0600-\u06FF]/.test(userText);
-  const isRomanUrdu = query.includes("bhai") || query.includes("hai") || query.includes("kya") || query.includes("karo") || query.includes("dikhao") || query.includes("kam") || query.includes("zyada") || query.includes("faida") || query.includes("nuqsan") || query.includes("kaise") || query.includes("ko");
+  const isRomanUrdu = query.includes("bhai") || query.includes("hai") || query.includes("kya") || query.includes("karo") || query.includes("dikhao") || query.includes("kam") || query.includes("zyada") || query.includes("faida") || query.includes("nuqsan") || query.includes("kaise") || query.includes("ko") || query.includes("shuru") || query.includes("btao") || query.includes("batao") || query.includes("khatam") || query.includes("sasta") || query.includes("mehnga") || query.includes("mujhe") || query.includes("bataen") || query.includes("dikhaen") || query.includes("hisaab") || query.includes("fayda") || query.includes("nuksan") || query.includes("gaya") || query.includes("chal") || query.includes("raha") || query.includes("rahi") || query.includes("haan") || query.includes("na") || query.includes("nahi") || query.includes("nahin") || query.includes("chahiye") || query.includes("chahye") || query.includes("ke") || query.includes("ki") || query.includes("se") || query.includes("main") || query.includes("mein") || query.includes("shukriya") || query.includes("shukria");
   
   // 1. Calculate stats
   const totalItems = items.length;
@@ -24,183 +24,49 @@ const getLocalAssistantResponse = (userText: string, items: Item[], moves: Stock
   const potentialProfit = totalValue - totalCost;
   const marginPercentage = totalValue > 0 ? (potentialProfit / totalValue) * 100 : 0;
 
-  // 2. Format replies
-  
-  // A. Low Stock Query
-  if (query.includes("low") || (query.includes("stock") && (query.includes("low") || query.includes("minimum") || query.includes("کم") || query.includes("شارٹ")))) {
-    if (lowStockItems.length === 0) {
-      if (isUrduScript) {
-        return `🎉 **بہترین خبر!** آپ کے پاس کوئی بھی آئٹم شارٹ یا کم نہیں ہے۔ تمام پروڈکٹس کا اسٹاک مکمل ہے۔`;
-      } else if (isRomanUrdu) {
-        return `🎉 **Zabardast Khabar!** Aap ke paas koi bhi item short ya kam nahi hai. Sab items fully stocked hain.`;
-      }
-      return `**Great news!** All your products are fully stocked. There are currently **no low-stock items** in your store.`;
-    }
-    const list = lowStockItems.map(item => `- **${item.name}** (SKU: ${item.sku || "N/A"}): Current Qty: **${item.qty} ${item.unit}** (Min threshold: ${item.minQty} ${item.unit})`).join("\n");
-    
-    if (isUrduScript) {
-      return `### ⚠️ کم اسٹاک الرٹ (Low Stock Alert)\nآپ کی **${lowStockItems.length}** پروڈکٹس کم از کم حد سے نیچے چل رہی ہیں:\n\n${list}\n\n*مشورہ: اسٹاک ختم ہونے سے پہلے ان آئٹمز کا آرڈر دیں!*`;
-    } else if (isRomanUrdu) {
-      return `### ⚠️ Low Stock Alert\nAap ki **${lowStockItems.length}** products minimum limit se kam hain:\n\n${list}\n\n*Mashwara: Stock khatam hone se pehle in items ko reorder karlein!*`;
-    }
-    return `### ⚠️ Low Stock Alert\nYou have **${lowStockItems.length}** product(s) running below their minimum limit:\n\n${list}\n\n*Suggestion: Please reorder these items soon to prevent stockouts!*`;
-  }
+  // Search for mentioned product
+  const mentionedProduct = items.find(item => {
+    const nameLower = item.name.toLowerCase();
+    return query.includes(nameLower) || (item.sku && query.includes(item.sku.toLowerCase()));
+  });
 
-  // B. Financials, Valuation, Profit Margin
-  if (query.includes("valuation") || query.includes("profit") || query.includes("margin") || query.includes("worth") || query.includes("قیمت") || query.includes("مال") || query.includes("منافع") || query.includes("کل") || query.includes("فنانشل") || query.includes("invest") || query.includes("faida") || query.includes("munafa")) {
-    if (isUrduScript) {
-      return `### 📊 اسٹور کی مالی حالت اور ویلیو ایشن
-یہاں آپ کی انوینٹری کا لائیو فنانشل ریکارڈ ہے:
-
-- 📦 **کل فعال پروڈکٹس:** **${totalItems}** آئٹمز
-- 💰 **کل انوینٹری لاگت (سرمایہ کاری):** **Rs. ${totalCost.toLocaleString()}**
-- 🏷️ **اسٹور کی کل ریٹیل ویلیو (سیل قیمت):** **Rs. ${totalValue.toLocaleString()}**
-- 📈 **ممکنہ کل منافع (Expected Profit):** **Rs. ${potentialProfit.toLocaleString()}**
-- ✨ **اوسط منافع مارجن %:** **${marginPercentage.toFixed(1)}%**
-
-*نوٹ: یہ حساب کتاب آپ کے لائیو اسٹاک اور خرید/فروخت کی قیمت پر مبنی ہے۔*`;
-    } else if (isRomanUrdu) {
-      return `### 📊 Store Financial & Valuation Status
-Aap ki inventory ki live details niche di gayi hain:
-
-- 📦 **Total Active Products:** **${totalItems}** items
-- 💰 **Total Inventory Cost (Invesment):** **Rs. ${totalCost.toLocaleString()}**
-- 🏷️ **Total Store Retail Value:** **Rs. ${totalValue.toLocaleString()}**
-- 📈 **Expected Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
-- ✨ **Average Margin %:** **${marginPercentage.toFixed(1)}%**
-
-*Note: Yeh calculation aap ke mojuda stock quantity aur buying/selling price par mabni hai.*`;
-    }
-    return `### 📊 Store Financial Overview
-Here is the real-time financial valuation of your inventory:
-
-- 📦 **Total Active Products:** **${totalItems}** items
-- 💰 **Total Inventory Cost (Investment):** **Rs. ${totalCost.toLocaleString()}**
-- 🏷️ **Total Store Retail Value:** **Rs. ${totalValue.toLocaleString()}**
-- 📈 **Potential Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
-- ✨ **Average Profit Margin %:** **${marginPercentage.toFixed(1)}%**
-
-*Note: These figures are based on your current stocked quantities and purchase/selling prices.*`;
-  }
-
-  // C. Out of Stock
-  if (query.includes("out of") || query.includes("zero") || query.includes("ختم") || query.includes("khali")) {
-    if (outOfStockItems.length === 0) {
-      if (isUrduScript) {
-        return `🎉 **بہت عمدہ!** آپ کے پاس کوئی بھی پروڈکٹ مکمل ختم نہیں ہوئی ہے۔ تمام پروڈکٹس کا اسٹاک موجود ہے!`;
-      } else if (isRomanUrdu) {
-        return `🎉 **Bohot Achhe!** Aap ke paas koi bhi product khatam nahi hui hai. Sab ka stock active hai!`;
-      }
-      return `🎉 **Amazing!** None of your products are completely out of stock. Everything has active inventory!`;
-    }
-    const list = outOfStockItems.map(item => `- **${item.name}** (SKU: ${item.sku || "N/A"})`).join("\n");
-    
-    if (isUrduScript) {
-      return `### 🚫 ختم شدہ آئٹمز (Out of Stock)\nدرج ذیل **${outOfStockItems.length}** پروڈکٹس کا اسٹاک بالکل **0** ہو چکا ہے:\n\n${list}\n\n*فوری کام: نیا اسٹاک حاصل کرتے ہی ان کی تعداد کو اپ ڈیٹ کریں۔*`;
-    } else if (isRomanUrdu) {
-      return `### 🚫 Out of Stock Items\nIn **${outOfStockItems.length}** products ka stock bilkul **0** ho chuka hai:\n\n${list}\n\n*Zaroori kaam: New stock aate hi inki quantity update karein.*`;
-    }
-    return `### 🚫 Out of Stock Items\nThe following **${outOfStockItems.length}** product(s) have exactly **0** quantity remaining:\n\n${list}\n\n*Action needed: Update these stock levels as soon as you receive new shipments.*`;
-  }
-
-  // D. Stock movements history
-  if (query.includes("move") || query.includes("history") || query.includes("ledger") || query.includes("تبدیلی") || query.includes("ریکارڈ") || query.includes("ہسٹری") || query.includes("chalu")) {
-    if (!moves || moves.length === 0) {
-      if (isUrduScript) {
-        return `اس اسٹور میں ابھی تک اسٹاک کی کوئی حالیہ تبدیلی یا ریکارڈ درج نہیں کیا گیا ہے۔`;
-      } else if (isRomanUrdu) {
-        return `Is store mein abhi tak stock ki koi recent tabdeeli ya record save nahi kiya gaya.`;
-      }
-      return `There are no recent stock movements or log entries recorded in this store yet.`;
-    }
-    const recent = moves.slice(-5).reverse();
-    const list = recent.map(m => `- **${m.itemName}**: **${m.qty > 0 ? "+" : ""}${m.qty}** (${m.type}) - *${m.reason}* on ${new Date(m.date).toLocaleDateString()}`).join("\n");
-    
-    if (isUrduScript) {
-      return `### 📝 اسٹاک کی تبدیلیاں (حالیہ 5 ریکارڈز)\nیہاں اسٹاک کی حالیہ ایڈجسٹمنٹس کی تفصیل ہے:\n\n${list}`;
-    } else if (isRomanUrdu) {
-      return `### 📝 Recent Stock Moves (Last 5 Logs)\nStock mein hone wali haal hi ki tabdeeliyan:\n\n${list}`;
-    }
-    return `### 📝 Recent Stock Moves Log (Last 5)\nHere are the most recent inventory adjustments:\n\n${list}`;
-  }
-
-  // E. Greetings / Hello
-  if (query.includes("hello") || query.includes("hi") || query.includes("hey") || query.includes("سلام") || query.includes("ہیلو") || query.includes("اپ کون") || query.includes("assalam") || query.includes("kaisa")) {
-    if (isUrduScript) {
-      return `### 👋 السلام علیکم! میں انویکسا اسمارٹ مینیجر اسسٹنٹ ہوں
-آپ کا لائیو اسٹور ساتھی۔ میں انوینٹری کے مکمل ڈیٹا اور درست کیلکولیشن کے ساتھ تیار ہوں!
-
-آپ مجھ سے ایسے سوالات پوچھ سکتے ہیں:
-1. **"کون سے پروڈکٹس کا اسٹاک کم ہے؟"**
-2. **"کل مالیت اور منافع کا حساب دکھاؤ"**
-3. **"حالیہ انوینٹری تبدیلیاں ہسٹری پیش کرو"**
-4. **"کون سی آئٹمز بالکل ختم ہو چکی ہیں؟"**
-
-آج میں آپ کے کاروبار میں کس طرح مدد کر سکتا ہوں؟`;
-    } else if (isRomanUrdu) {
-      return `### 👋 Assalam-o-Alaikum! Main Invexa Smart Manager Assistant hoon
-Aap ka live store companion. Main pure inventory data aur bilkul sahi calculations ke sath tayar hoon!
-
-Aap mujhse aise sawalat pooch sakte hain:
-1. **"Konsi products low in stock hain?"**
-2. **"Total valuation aur profit margin dikhao"**
-3. **"Recent stock moves history dikhao"**
-4. **"Konsi items bilkul khatam ho chuki hain?"**
-
-Aaj main aap ke business mein kis tarah madad kar sakta hoon?`;
-    }
-    return `### 👋 Assalam-o-Alaikum! I am INVEXA SMART MANAGER Assistant
-Your resilient, built-in store companion. I am fully loaded with your live inventory context and ready to help!
-
-You can ask me questions like:
-1. **"Which products are low in stock?"**
-2. **"What is the total valuation & profit margin?"**
-3. **"Show recent stock moves history"**
-4. **"Which items are completely out of stock?"**
-
-How can I assist you with your business today?`;
-  }
-
-  // F. Specific product lookups
-  const mentionedProduct = items.find(item => query.includes(item.name.toLowerCase()));
   if (mentionedProduct) {
     const margin = mentionedProduct.price - (mentionedProduct.costPrice || 0);
     const itemMarginPercent = mentionedProduct.price > 0 ? (margin / mentionedProduct.price) * 100 : 0;
     
     if (isUrduScript) {
       return `### 🔍 پروڈکٹ کی تفصیلات: ${mentionedProduct.name}
-آپ کی منتخب کردہ پروڈکٹ کی لائیو معلومات درج ذیل ہیں:
+آپ کی مطلوبہ پروڈکٹ کا لائیو ڈیٹا مندرجہ ذیل ہے:
 
-- 📦 **موجودہ اسٹاک کی تعداد:** **${mentionedProduct.qty} ${mentionedProduct.unit}**
-- ⚠️ **کم از کم حد (Min limit):** **${mentionedProduct.minQty} ${mentionedProduct.unit}**
-- 🛒 **فروخت کی قیمت (Retail Price):** **Rs. ${mentionedProduct.price.toLocaleString()}**
-- 💼 **خریداری کی قیمت (Cost Price):** **Rs. ${(mentionedProduct.costPrice || 0).toLocaleString()}**
-- 📈 **منافع فی یونٹ (Unit Profit Margin):** **Rs. ${margin.toLocaleString()}** (${itemMarginPercent.toFixed(1)}%)
-- 🏷️ **برانڈ اور کیٹیگری:** ${mentionedProduct.brand || "کوئی نہیں"} | ${mentionedProduct.category || "جنرل"}
-- 📍 **اسٹور میں لوکیشن (خانہ):** ${mentionedProduct.location || "ڈیفالٹ شیلف"}
-- 🔑 **SKU:** \`${mentionedProduct.sku || "N/A"}\`
+- 📦 **موجودہ اسٹاک:** **${mentionedProduct.qty} ${mentionedProduct.unit}**
+- ⚠️ **کم از کم مقررہ حد:** **${mentionedProduct.minQty} ${mentionedProduct.unit}**
+- 🛒 **فروخت کی قیمت (ریٹیل):** **Rs. ${mentionedProduct.price.toLocaleString()}**
+- 💼 **خریداری کی قیمت (لاگت):** **Rs. ${(mentionedProduct.costPrice || 0).toLocaleString()}**
+- 📈 **منافع فی یونٹ:** **Rs. ${margin.toLocaleString()}** (${itemMarginPercent.toFixed(1)}%)
+- 🏷️ **برانڈ اور کیٹیگری:** ${mentionedProduct.brand || "کوئی برانڈ نہیں"} | ${mentionedProduct.category || "جنرل"}
+- 📍 **لوکیشن (شیلف نمبر):** ${mentionedProduct.location || "ڈیفالٹ شیلف"}
+- 🔑 **SKU کوڈ:** \`${mentionedProduct.sku || "N/A"}\`
 ${mentionedProduct.expiryDate ? `- 📅 **ایکسپائری تاریخ:** ${mentionedProduct.expiryDate}` : ""}
 
-*اسٹیشن کی حالت:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **آرڈر کی ضرورت ہے!** اسٹاک حد سے کم ہے۔" : "✅ **اسٹاک صحت مند ہے۔**"}`;
+*اسٹاک کی حالت:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **فوری توجہ کی ضرورت ہے!** اسٹاک حد سے کم ہو گیا ہے۔" : "✅ **اسٹاک محفوظ حد میں ہے۔**"}`;
     } else if (isRomanUrdu) {
       return `### 🔍 Product Details: ${mentionedProduct.name}
-Aap ki is product ki live details niche di gayi hain:
+Aap ki product ki mukammal live details niche di gayi hain:
 
 - 📦 **Mojuda Stock:** **${mentionedProduct.qty} ${mentionedProduct.unit}**
 - ⚠️ **Minimum Limit:** **${mentionedProduct.minQty} ${mentionedProduct.unit}**
 - 🛒 **Retail Price:** **Rs. ${mentionedProduct.price.toLocaleString()}**
-- 💼 **Cost Price:** **Rs. ${(mentionedProduct.costPrice || 0).toLocaleString()}**
-- 📈 **Unit Profit Margin:** **Rs. ${margin.toLocaleString()}** (${itemMarginPercent.toFixed(1)}%)
+- 💼 **Cost Price (Khareed):** **Rs. ${(mentionedProduct.costPrice || 0).toLocaleString()}**
+- 📈 **Profit Per Unit:** **Rs. ${margin.toLocaleString()}** (${itemMarginPercent.toFixed(1)}%)
 - 🏷️ **Brand & Category:** ${mentionedProduct.brand || "None"} | ${mentionedProduct.category || "General"}
 - 📍 **Location:** ${mentionedProduct.location || "Default Shelf"}
 - 🔑 **SKU:** \`${mentionedProduct.sku || "N/A"}\`
 ${mentionedProduct.expiryDate ? `- 📅 **Expiry Date:** ${mentionedProduct.expiryDate}` : ""}
 
-*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Reordering ki zaroorat hai!** Limit se kam hai." : "✅ **Stock level bilkul theek hai.**"}`;
+*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Reorder Alert!** Stock warning limit se kam hai." : "✅ **Stock safe limit mein hai.**"}`;
     }
-
     return `### 🔍 Product Details: ${mentionedProduct.name}
-Here is the live status for the product you mentioned:
+Here is the live metadata and inventory state for this item:
 
 - 📦 **Current Stock Level:** **${mentionedProduct.qty} ${mentionedProduct.unit}**
 - ⚠️ **Min Stock Limit:** **${mentionedProduct.minQty} ${mentionedProduct.unit}**
@@ -215,35 +81,397 @@ ${mentionedProduct.expiryDate ? `- 📅 **Expiry Date:** ${mentionedProduct.expi
 *Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Needs Reordering!** Running below limit." : "✅ **Stock Level Healthy.**"}`;
   }
 
-  // G. Default Response
-  if (isUrduScript) {
-    return `### 💡 لائیو اسسٹنٹ
-میں نے آپ کی درخواست کو اسٹور کی **${totalItems} فعال پروڈکٹس** اور اسٹاک ہسٹری کے مطابق پرکھا ہے:
+  // A. Low Stock Query
+  if (query.includes("low") || query.includes("short") || query.includes("reorder") || query.includes("کم") || query.includes("شارٹ") || query.includes("کم اسٹاک") || query.includes("limit")) {
+    if (lowStockItems.length === 0) {
+      if (isUrduScript) {
+        return `🎉 **بہترین خبر!** آپ کے پاس کوئی بھی پروڈکٹ شارٹ یا کم نہیں ہے۔ تمام پروڈکٹس کا اسٹاک مکمل طور پر محفوظ ہے۔`;
+      } else if (isRomanUrdu) {
+        return `🎉 **Zabardast Khabar!** Aap ke paas koi bhi product short nahi hai. Sab items fully stocked hain!`;
+      }
+      return `**Great news!** All your products are fully stocked. There are currently **no low-stock items** in your store.`;
+    }
+    const list = lowStockItems.map(item => `- **${item.name}** (SKU: ${item.sku || "N/A"}): Current: **${item.qty} ${item.unit}** (Min: ${item.minQty})`).join("\n");
+    
+    if (isUrduScript) {
+      return `### ⚠️ کم اسٹاک الرٹ (Low Stock Alert)
+آپ کے پاس **${lowStockItems.length}** پروڈکٹس کم از کم مقررہ حد سے نیچے چل رہی ہیں:
 
-- 📦 **کل فعال پروڈکٹس:** **${totalItems}**
-- ⚠️ **کم اسٹاک الرٹس:** **${lowStockItems.length}** پروڈکٹس
-- 💰 **اسٹور کی کل مالیت:** **Rs. ${totalValue.toLocaleString()}**
+${list}
 
-*میں آپ کا مخصوص سوال پوری طرح نہیں سمجھ سکا، براہ کرم "کم اسٹاک"، "کل مالیت"، یا کسی مخصوص پروڈکٹ کا نام لکھ کر بات کریں!*`;
-  } else if (isRomanUrdu) {
-    return `### 💡 Live Assistant
-Main ne aap ki query ko **${totalItems} products** ke mutabiq check kiya hai:
+*مشورہ: ان پروڈکٹس کا فوری طور پر آرڈر دیں تاکہ سیلز متاثر نہ ہوں۔*`;
+    } else if (isRomanUrdu) {
+      return `### ⚠️ Low Stock Alert
+Aap ki **${lowStockItems.length}** products warning limit se kam chal rahi hain:
 
-- 📦 **Total Products:** **${totalItems}**
-- ⚠️ **Low Stock Alert:** **${lowStockItems.length}** items kam hain
-- 💰 **Total Valuation:** **Rs. ${totalValue.toLocaleString()}**
+${list}
 
-*Main aap ka sawal poori tarah samajh nahi saka. Aap "low stock", "total valuation", ya kisi specific product ka naam likh kar pooch sakte hain!*`;
+*Mashwara: In items ko jaldi reorder karlein taake customer khali haath na jaye!*`;
+    }
+    return `### ⚠️ Low Stock Alert
+You have **${lowStockItems.length}** product(s) running below their minimum limit:
+
+${list}
+
+*Suggestion: Please reorder these items soon to prevent stockouts!*`;
   }
 
-  return `### 💡 Live Merchant Assistant
-I have analyzed your request against your **${totalItems} active products** and logged stock history:
+  // B. Out of Stock
+  if (query.includes("out of") || query.includes("zero") || query.includes("khali") || query.includes("khatam") || query.includes("ختم") || query.includes("خالی") || query.includes("نہیں ہے")) {
+    if (outOfStockItems.length === 0) {
+      if (isUrduScript) {
+        return `🎉 **بہت عمدہ!** آپ کا کوئی بھی مال ختم نہیں ہوا ہے۔ تمام پروڈکٹس کا کچھ نہ کچھ اسٹاک موجود ہے!`;
+      } else if (isRomanUrdu) {
+        return `🎉 **Bohot Achhe!** Aap ke paas koi bhi item bilkul khatam nahi hui hai. Sab ka stock active hai!`;
+      }
+      return `🎉 **Amazing!** None of your products are completely out of stock. Everything has active inventory!`;
+    }
+    const list = outOfStockItems.map(item => `- **${item.name}** (SKU: ${item.sku || "N/A"})`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 🚫 ختم شدہ اشیاء (Out of Stock Record)
+درج ذیل **${outOfStockItems.length}** پروڈکٹس کا اسٹاک بالکل **0** (ختم) ہو چکا ہے:
 
-- 📦 **Total Products:** **${totalItems}**
-- ⚠️ **Low Stock Alert:** **${lowStockItems.length}** item(s) running low.
-- 💰 **Total Inventory Net Worth:** **Rs. ${totalValue.toLocaleString()}**
+${list}
 
-*I didn't quite catch the specific details for your query. Try asking about **"low stock"**, **"total valuation"**, or mention a specific product name from your catalog!*`;
+*فوری کام: نئی شپمنٹ موصول ہوتے ہی ان آئٹمز کا اسٹاک درج کریں۔*`;
+    } else if (isRomanUrdu) {
+      return `### 🚫 Out of Stock Items
+Aap ki **${outOfStockItems.length}** items bilkul khatam ho chuki hain (0 quantity):
+
+${list}
+
+*Zaroori kaam: New supply aate hi quantities update karein.*`;
+    }
+    return `### 🚫 Out of Stock Items
+The following **${outOfStockItems.length}** product(s) have exactly **0** quantity remaining:
+
+${list}
+
+*Action needed: Update these stock levels as soon as you receive new shipments.*`;
+  }
+
+  // C. Financials, Valuation, Profit Margin, Investment
+  if (query.includes("valuation") || query.includes("profit") || query.includes("margin") || query.includes("worth") || query.includes("cost") || query.includes("investment") || query.includes("capital") || query.includes("paisa") || query.includes("maliaat") || query.includes("budget") || query.includes("قيمت") || query.includes("قیمت") || query.includes("مال") || query.includes("منافع") || query.includes("کل") || query.includes("فنانشل") || query.includes("faida") || query.includes("munafa") || query.includes("invest") || query.includes("sarmaya") || query.includes("khareed") || query.includes("bech")) {
+    if (isUrduScript) {
+      return `### 📊 اسٹور کی مالی حالت اور ویلیو ایشن
+یہاں آپ کی انوینٹری کا لائیو فنانشل ریکارڈ ہے:
+
+- 📦 **کل فعال پروڈکٹس:** **${totalItems}** پروڈکٹس
+- 💰 **کل انوینٹری لاگت (سرمایہ کاری):** **Rs. ${totalCost.toLocaleString()}**
+- 🏷️ **اسٹور کی کل ریٹیل ویلیو (سیل قیمت):** **Rs. ${totalValue.toLocaleString()}**
+- 📈 **ممکنہ کل منافع (Expected Profit):** **Rs. ${potentialProfit.toLocaleString()}**
+- ✨ **اوسط منافع مارجن %:** **${marginPercentage.toFixed(1)}%**
+
+*نوٹ: یہ حساب کتاب آپ کے لائیو اسٹاک اور خرید/فروخت کی قیمتوں پر مبنی ہے۔*`;
+    } else if (isRomanUrdu) {
+      return `### 📊 Store Financial & Valuation Status
+Aap ki live inventory key financial details niche di gayi hain:
+
+- 📦 **Total Active Products:** **${totalItems}** items
+- 💰 **Total Inventory Cost (Investment):** **Rs. ${totalCost.toLocaleString()}**
+- 🏷️ **Total Store Retail Value:** **Rs. ${totalValue.toLocaleString()}**
+- 📈 **Expected Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
+- ✨ **Average Profit Margin %:** **${marginPercentage.toFixed(1)}%**
+
+*Note: Yeh calculation aap ke live stock quantity aur rates par mabni hai.*`;
+    }
+    return `### 📊 Store Financial Overview
+Here is the real-time financial valuation of your inventory:
+
+- 📦 **Total Active Products:** **${totalItems}** items
+- 💰 **Total Inventory Cost (Investment):** **Rs. ${totalCost.toLocaleString()}**
+- 🏷️ **Total Store Retail Value:** **Rs. ${totalValue.toLocaleString()}**
+- 📈 **Potential Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
+- ✨ **Average Profit Margin %:** **${marginPercentage.toFixed(1)}%**
+
+*Note: These figures are based on your current stocked quantities and purchase/selling prices.*`;
+  }
+
+  // D. Most Stocked Items
+  if (query.includes("most") || query.includes("highest stock") || query.includes("max") || query.includes("sab se zyada") || query.includes("zyada stock") || query.includes("زیادہ اسٹاک") || query.includes("بڑا اسٹاک")) {
+    const sorted = [...items].sort((a, b) => b.qty - a.qty).slice(0, 3);
+    const list = sorted.map((item, index) => `${index + 1}. **${item.name}**: **${item.qty} ${item.unit}** (Price: Rs ${item.price})`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 📈 سب سے زیادہ اسٹاک والی اشیاء (Top 3)
+آپ کی انوینٹری میں درج ذیل اشیاء کا اسٹاک سب سے زیادہ ہے:
+
+${list}
+
+*ٹپ: زیادہ اسٹاک والے آئٹمز کی فروخت تیز کرنے کے لیے خصوصی پیکیج بنائیں۔*`;
+    } else if (isRomanUrdu) {
+      return `### 📈 Highest Stocked Items (Top 3)
+Aap ki inventory mein sab se zyada stock in items ka hai:
+
+${list}
+
+*Tip: Zyada stock wali items ki sales mazeed barhane ke liye bundles banayein.*`;
+    }
+    return `### 📈 Highest Stocked Items (Top 3)
+The following products currently have the largest quantity in stock:
+
+${list}
+
+*Strategy: Consider bundling high-stock items with others to accelerate sales turnover.*`;
+  }
+
+  // E. Cheapest / Lowest Price Items
+  if (query.includes("cheapest") || query.includes("lowest price") || query.includes("sasta") || query.includes("kam qeemat") || query.includes("سستا") || query.includes("سستی") || query.includes("کم قیمت")) {
+    const sorted = [...items].filter(item => item.price > 0).sort((a, b) => a.price - b.price).slice(0, 3);
+    const list = sorted.map((item, index) => `${index + 1}. **${item.name}**: **Rs. ${item.price.toLocaleString()}** (Stock: ${item.qty} ${item.unit})`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 💰 سب سے سستی اشیاء (Top 3 Lowest Prices)
+آپ کے اسٹور میں سب سے کم قیمت پر فروخت ہونے والی پروڈکٹس درج ذیل ہیں:
+
+${list}`;
+    } else if (isRomanUrdu) {
+      return `### 💰 Cheapest Items (Top 3 Lowest Prices)
+Aap ke store mein sab se kam price wali items yeh hain:
+
+${list}`;
+    }
+    return `### 💰 Cheapest Items (Top 3 Lowest Prices)
+The following products are priced lowest in your store catalog:
+
+${list}`;
+  }
+
+  // F. Most Expensive / Highest Price Items
+  if (query.includes("expensive") || query.includes("highest price") || query.includes("mehnga") || query.includes("zyada qeemat") || query.includes("مہنگا") || query.includes("مہنگی") || query.includes("زیادہ قیمت")) {
+    const sorted = [...items].sort((a, b) => b.price - a.price).slice(0, 3);
+    const list = sorted.map((item, index) => `${index + 1}. **${item.name}**: **Rs. ${item.price.toLocaleString()}** (Stock: ${item.qty} ${item.unit})`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 💎 سب سے مہنگی اشیاء (Top 3 Highest Prices)
+آپ کے اسٹور میں سب سے زیادہ قیمت پر فروخت ہونے والی پریمیم اشیاء مندرجہ ذیل ہیں:
+
+${list}`;
+    } else if (isRomanUrdu) {
+      return `### 💎 Most Expensive Items (Top 3 Premium Prices)
+Aap ke store mein sab se mehngi products yeh hain:
+
+${list}`;
+    }
+    return `### 💎 Most Expensive Items (Top 3 Premium Prices)
+The following products represent the highest retail values in your store:
+
+${list}`;
+  }
+
+  // G. Category Breakdown
+  if (query.includes("category") || query.includes("categories") || query.includes("group") || query.includes("کیٹیگری") || query.includes("شعبہ")) {
+    const catMap: Record<string, number> = {};
+    items.forEach(item => {
+      const cat = item.category || "General";
+      catMap[cat] = (catMap[cat] || 0) + 1;
+    });
+    const list = Object.entries(catMap).map(([cat, count]) => `- **${cat}**: **${count}** items`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 🗂️ پروڈکٹ کیٹیگریز (Categories Breakdown)
+آپ کی انوینٹری درج ذیل کیٹیگریز میں تقسیم کی گئی ہے:
+
+${list}
+
+*ٹپ: آپ کیٹیگری فلٹرز کا استعمال کر کے اپنی انوینٹری کو مزید بہتر تلاش کر سکتے ہیں۔*`;
+    } else if (isRomanUrdu) {
+      return `### 🗂️ Product Categories Breakdown
+Aap ki inventory categories ki detail niche di gayi hai:
+
+${list}`;
+    }
+    return `### 🗂️ Product Categories Breakdown
+Here is the current distribution of items across categories:
+
+${list}`;
+  }
+
+  // H. Suppliers
+  if (query.includes("supplier") || query.includes("vendor") || query.includes("سپلائر") || query.includes("ڈیلر")) {
+    const supMap: Record<string, number> = {};
+    items.forEach(item => {
+      const sup = item.supplier || "Not Configured";
+      supMap[sup] = (supMap[sup] || 0) + 1;
+    });
+    const list = Object.entries(supMap).map(([sup, count]) => `- **${sup}**: Supplies **${count}** items`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 🤝 سپلائر کی تفصیلات (Suppliers & Vendors)
+آپ کے رجسٹرڈ سپلائرز کی معلومات مندرجہ ذیل ہیں:
+
+${list}`;
+    } else if (isRomanUrdu) {
+      return `### 🤝 Suppliers & Vendors List
+Aap ke registered suppliers aur un se lee gayi items:
+
+${list}`;
+    }
+    return `### 🤝 Suppliers & Vendors List
+Here are your registered suppliers and the count of items supplied by each:
+
+${list}`;
+  }
+
+  // I. Stock movements ledger
+  if (query.includes("move") || query.includes("history") || query.includes("ledger") || query.includes("tabdeeli") || query.includes("recent") || query.includes("تبدیلی") || query.includes("ہسٹری") || query.includes("ریکارڈ")) {
+    if (!moves || moves.length === 0) {
+      if (isUrduScript) {
+        return `اسٹور میں ابھی تک اسٹاک کی کوئی حالیہ تبدیلی یا ریکارڈ درج نہیں کیا گیا ہے۔`;
+      } else if (isRomanUrdu) {
+        return `Is store mein abhi tak stock ki koi recent tabdeeli ya record save nahi kiya gaya.`;
+      }
+      return `There are no recent stock movements or log entries recorded in this store yet.`;
+    }
+    const recent = moves.slice(-5).reverse();
+    const list = recent.map(m => `- **${m.itemName}**: **${m.qty > 0 ? "+" : ""}${m.qty}** (${m.type}) - *${m.reason}* on ${new Date(m.date).toLocaleDateString()}`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 📝 اسٹاک کی تبدیلیاں (حالیہ 5 ریکارڈز)
+یہاں اسٹاک کی حالیہ ایڈجسٹمنٹس کی تفصیل ہے:
+
+${list}`;
+    } else if (isRomanUrdu) {
+      return `### 📝 Recent Stock Moves (Last 5 Logs)
+Stock mein hone wali haal hi ki tabdeeliyan:
+
+${list}`;
+    }
+    return `### 📝 Recent Stock Moves Log (Last 5)
+Here are the most recent inventory adjustments:
+
+${list}`;
+  }
+
+  // J. Expiry Checks
+  if (query.includes("expiry") || query.includes("expired") || query.includes("date") || query.includes("expiring") || query.includes("ایکسپائری")) {
+    const expiring = items.filter(item => item.expiryDate);
+    if (expiring.length === 0) {
+      if (isUrduScript) {
+        return `🎉 **صحت مند اسٹاک!** آپ کی انوینٹری میں کسی بھی آئٹم پر کوئی ایکسپائری تاریخ درج نہیں ہے یا تمام محفوظ ہیں۔`;
+      } else if (isRomanUrdu) {
+        return `🎉 **Zabardast!** Aap ki products mein expiry dates ki koi urgent alert nahi hai.`;
+      }
+      return `There are no items flagged with active expiry dates in your database.`;
+    }
+    const list = expiring.map(item => `- **${item.name}**: Expires on **${item.expiryDate}** (Stock: ${item.qty} ${item.unit})`).join("\n");
+    
+    if (isUrduScript) {
+      return `### 📅 ایکسپائری الرٹ (Expiry Track)
+درج ذیل اشیاء کی ایکسپائری تاریخیں درج ہیں:
+
+${list}
+
+*مشورہ: زائد المعیاد ہونے سے پہلے ان اشیاء کی فروخت یقینی بنائیں۔*`;
+    } else if (isRomanUrdu) {
+      return `### 📅 Expiry Alert
+Niche di gayi items par expiry dates register hain:
+
+${list}`;
+    }
+    return `### 📅 Expiry Alert
+The following items have registered expiry dates:
+
+${list}`;
+  }
+
+  // K. Total Items Count
+  if (query.includes("total items") || query.includes("how many items") || query.includes("count") || query.includes("تعداد") || query.includes("پروڈکٹس")) {
+    if (isUrduScript) {
+      return `### 📦 انوینٹری سمری (Inventory Summary)
+آپ کے پاس فی الحال **${totalItems}** پروڈکٹس رجسٹرڈ ہیں:
+
+- 📋 **فعال اشیاء کا کاؤنٹ:** **${totalItems}** SKU
+- ⚠️ **کم اسٹاک اشیاء:** **${lowStockItems.length}** پروڈکٹس
+- 🚫 **آؤٹ آف اسٹاک اشیاء:** **${outOfStockItems.length}** پروڈکٹس
+
+*آپ کسی مخصوص کیٹیگری یا برانڈ کی تفصیل بھی جان سکتے ہیں۔*`;
+    } else if (isRomanUrdu) {
+      return `### 📦 Inventory Registry Count
+Aap ke store mein total **${totalItems}** active products registered hain:
+
+- 📋 **Total Products:** **${totalItems}** items
+- ⚠️ **Low Stock Warns:** **${lowStockItems.length}** products
+- 🚫 **Out of Stock:** **${outOfStockItems.length}** items`;
+    }
+    return `### 📦 Inventory Registry Count
+Your store has a total of **${totalItems}** active products registered:
+
+- 📋 **Total SKUs:** **${totalItems}** items
+- ⚠️ **Low Stock Warning:** **${lowStockItems.length}** products
+- 🚫 **Completely Empty Stock:** **${outOfStockItems.length}** items`;
+  }
+
+  // L. Business Advice / Growth Tips
+  if (query.includes("grow") || query.includes("improve") || query.includes("profit") || query.includes("business") || query.includes("karobar") || query.includes("بڑھانے") || query.includes("طریقہ") || query.includes("مشورہ") || query.includes("طریقے") || query.includes("مشورے")) {
+    if (isUrduScript) {
+      return `### 🚀 کاروبار بڑھانے اور منافع بچانے کے مفید مشورے
+آپ کی انوینٹری ڈیٹا کی بنیاد پر، میں نے درج ذیل تجاویز تیار کی ہیں:
+
+1. ⚠️ **پہلے کم اسٹاک آئٹمز آرڈر کریں:** آپ کی **${lowStockItems.length}** اہم اشیاء کم ہیں، انہیں فوری خریدیں تاکہ گاہک واپس نہ جائے۔
+2. 💰 **سرمایہ کاری کو رول کریں:** آپ کا کل سرمایہ **Rs. ${totalCost.toLocaleString()}** بند پڑا ہے۔ جو مال سست بکتا ہے اس کا اسٹاک کم رکھیں اور تیز بکنے والے مال پر فوکس کریں۔
+3. 📈 **منافع مارجن پر کام کریں:** آپ کا اوسط منافع مارجن **${marginPercentage.toFixed(1)}%** ہے۔ کم منافع والی اشیاء کی جگہ ہائی مارجن پریمیم برانڈز کو جگہ دیں۔
+4. 📝 **روزانہ لیجر اپ ڈیٹ رکھیں:** اسٹاک ان اور آؤٹ کا بروقت اندراج چوری اور غبن سے محفوظ رکھتا ہے۔
+
+*انویکسا ہمیشہ آپ کے کاروبار کی ترقی کے لیے دعاگو ہے!*`;
+    } else if (isRomanUrdu) {
+      return `### 🚀 Business Grow Karne & Profit Barhane ke Tips
+Aap ke live inventory data ke mutabiq niche diye gaye mashwaray bohot faide mand ho sakte hain:
+
+1. ⚠️ **Low Stock pe focus karein:** Aap ki **${lowStockItems.length}** products limits se kam hain, inko foran purchase karein.
+2. 💰 **Dead stock se bachein:** Total investment Rs. ${totalCost.toLocaleString()} hai. Jo items kam bikti hain unka stock thora rakhein taake cash flow block na ho.
+3. 📈 **Profit margins check karein:** Average margin percentage **${marginPercentage.toFixed(1)}%** hai. High-profit margin items ko zyada promote karein.
+4. 🤝 **Suppliers se negotiation karein:** Cost price kam karne ke liye suppliers se wholesale discounts demand karein.`;
+    }
+    return `### 🚀 Business Growth & Optimization Advice
+Based on your current stock metrics, here are key action points to boost performance:
+
+1. ⚠️ **Replenish Critical Stocks:** Restock the **${lowStockItems.length}** low-stock items immediately to prevent lost sales opportunities.
+2. 💰 **Optimize Cash Capital Flow:** You have **Rs. ${totalCost.toLocaleString()}** tied up in physical stock. Identify slow-moving inventory and run discount deals to free up liquid cash.
+3. 📈 **Enhance Pricing Strategy:** Your average margin is **${marginPercentage.toFixed(1)}%**. Try negotiating bulk buy discounts with your suppliers to raise individual unit margins.
+4. 📝 **Log Every Movement:** Ensure all staff members strictly use Invexa to log Stock In / Stock Out, preventing shrinkage.`;
+  }
+
+  // M. Default / Greetings / Help
+  if (isUrduScript) {
+    return `### 👋 السلام علیکم! میں آپ کا انویکسا اسمارٹ اسسٹنٹ ہوں
+کاروباری ترقی، اسٹاک کے حساب کتاب اور انوینٹری فنانسنگ کا ماہر ساتھی۔
+
+آپ مجھ سے ایسے سوالات پوچھ سکتے ہیں، جن کا جواب لائیو اسٹاک کی بنیاد پر دیا جائے گا:
+- **"کل اسٹور کی مالیت اور منافع کا حساب دکھاؤ"** (فنانشل ڈیٹا)
+- **"کون سی پروڈکٹس کا اسٹاک کم ہے؟"** (ری آرڈر لسٹ)
+- **"سب سے مہنگی اور سب سے سستی اشیاء کون سی ہیں؟"** (قیمتوں کا تقابل)
+- **"کاروبار بڑھانے اور منافع کا مشورہ دو"** (بزنس ایڈوائس)
+- یا کسی بھی مخصوص پروڈکٹ کا نام لکھیں جیسے: \`${items[0]?.name || "پروڈکٹ کا نام"}\`
+
+*آج کاروبار کے کس پہلو میں مدد کروں؟*`;
+  } else if (isRomanUrdu) {
+    return `### 👋 Assalam-o-Alaikum! Main aap ka Invexa Smart Assistant hoon
+Aap ka business companion jo live stock calculations aur financial analytics mein mahir hai.
+
+Aap mujhse aise sawal pooch sakte hain:
+- **"Total valuation aur profit margin dikhao"**
+- **"Konsi items short ya low stock hain?"**
+- **"Sab se mehngi aur sab se sasti items dikhao"**
+- **"Business grow karne ke liye tips do"**
+- Kisi specific product ka status poochne ke liye uska naam likhein!
+
+*Aaj main aap ke business mein kis tarah madad kar sakta hoon?*`;
+  }
+
+  return `### 👋 Welcome to INVEXA SMART ASSISTANT
+Your highly robust, intelligent, and offline-resilient business manager. I have complete access to your store and can help with calculations, valuations, and metrics!
+
+Feel free to ask me anything:
+- **"What is the total valuation & profit margin of my store?"**
+- **"Show me the list of low stock items"**
+- **"Which items are completely empty / out of stock?"**
+- **"Show the latest stock movements log history"**
+- **"Give me business growth advice based on my current data"**
+- Type any specific product name from your catalog to view its live card details instantly.
+
+How can I serve your business today?`;
 };
 
 interface ChatBotProps {
@@ -365,8 +593,10 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
 
     try {
       const inventoryContext = getContext();
-      
-      // Resilient Dual-Environment Endpoint Lookup & Fallback System
+      let data = null;
+      let lastError: any = null;
+
+      // 1. Try central Server-Side API Call with fallback mirror URLs
       const baseUrl = dbService.getBaseUrl();
       const urls: string[] = [baseUrl];
       
@@ -375,9 +605,6 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
       } else if (baseUrl.includes("-dev-")) {
         urls.push(baseUrl.replace("-dev-", "-pre-"));
       }
-
-      let data = null;
-      let lastError: any = null;
 
       for (const url of urls) {
         try {
@@ -402,7 +629,6 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
               parsed = { reply: text };
             }
           } else {
-            // It's an error response (e.g., 500, 502, 504)
             let errorText = "";
             try {
               const contentType = response.headers.get("content-type") || "";
@@ -424,7 +650,6 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
           console.warn(`Chat request attempt failed on URL (${url}):`, err);
           lastError = err;
           
-          // Fast fail if it's a structural server config error (e.g., API key missing) rather than a network disconnect/timeout
           const errorMsg = err.message || "";
           const isNetworkError = errorMsg.includes("Failed to fetch") || 
                                  errorMsg.includes("NetworkError") || 
@@ -434,28 +659,18 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
                                  errorMsg.includes("token");
                                  
           if (!isNetworkError && errorMsg !== "The server failed to respond.") {
-            throw err; // Propagate critical issues (like missing API Key) directly to the user
+            throw err;
           }
         }
       }
 
+      // 2. Fallback to resilient, bilingually-tailored offline manager engine if all else fails
       if (!data) {
         console.log("Central servers unreachable or misconfigured. Running local offline engine...");
         const localReply = getLocalAssistantResponse(textToSend, items, moves);
         
-        // Check if there was a structural server error (like missing API key) to append guidance
-        const lastErrorMsg = (lastError?.message || "").toLowerCase();
-        const isApiKeyIssue = lastErrorMsg.includes("key") || lastErrorMsg.includes("unauthorized") || lastErrorMsg.includes("configure");
-        
-        let warningText = "";
-        if (isApiKeyIssue) {
-          warningText = `\n\n---\n*💡 Developer Note: The server's GEMINI_API_KEY is not configured yet. Add it in the Settings panel of AI Studio to activate full AI features.*`;
-        } else {
-          warningText = `\n\n---\n*⚡ Running in local merchant engine mode (Offline Resilient Mode).*`;
-        }
-        
         data = {
-          reply: `${localReply}${warningText}`
+          reply: localReply
         };
       }
 
@@ -525,19 +740,21 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
                   AI
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-[11px] md:text-xs">INVEXA ASSISTANT</h3>
-                  <p className="text-[8px] text-[#25D366] font-semibold flex items-center gap-1">
+                  <h3 className="font-extrabold text-[11px] md:text-xs text-left">INVEXA ASSISTANT</h3>
+                  <p className="text-[8px] text-[#25D366] font-semibold flex items-center gap-1 text-left">
                     <span className="h-1 w-1 bg-[#25D366] rounded-full animate-ping shrink-0" />
                     <span>Gemini Live Support</span>
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-md cursor-pointer duration-150"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer duration-150"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             {/* Chat Messages */}
