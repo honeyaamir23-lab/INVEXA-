@@ -176,7 +176,7 @@ Key Guidelines:
       });
 
       // Robust fallback retry system for models to handle 503/high demand issues gracefully
-      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
+      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
       let response = null;
       let lastError: any = null;
 

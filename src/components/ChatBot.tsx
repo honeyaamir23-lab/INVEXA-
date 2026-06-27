@@ -8,7 +8,11 @@ import { dbService } from "../db";
 const getLocalAssistantResponse = (userText: string, items: Item[], moves: StockMove[]): string => {
   const query = userText.toLowerCase().trim();
   const isUrduScript = /[\u0600-\u06FF]/.test(userText);
-  const isRomanUrdu = query.includes("bhai") || query.includes("hai") || query.includes("kya") || query.includes("karo") || query.includes("dikhao") || query.includes("kam") || query.includes("zyada") || query.includes("faida") || query.includes("nuqsan") || query.includes("kaise") || query.includes("ko") || query.includes("shuru") || query.includes("btao") || query.includes("batao") || query.includes("khatam") || query.includes("sasta") || query.includes("mehnga") || query.includes("mujhe") || query.includes("bataen") || query.includes("dikhaen") || query.includes("hisaab") || query.includes("fayda") || query.includes("nuksan") || query.includes("gaya") || query.includes("chal") || query.includes("raha") || query.includes("rahi") || query.includes("haan") || query.includes("na") || query.includes("nahi") || query.includes("nahin") || query.includes("chahiye") || query.includes("chahye") || query.includes("ke") || query.includes("ki") || query.includes("se") || query.includes("main") || query.includes("mein") || query.includes("shukriya") || query.includes("shukria");
+  const words = query.split(/[^a-zA-Z]+/);
+  const romanUrduDict = new Set([
+    "bhai", "hai", "he", "kya", "kia", "karo", "dikhao", "kam", "zyada", "faida", "nuqsan", "kaise", "ko", "shuru", "btao", "batao", "khatam", "sasta", "mehnga", "mujhe", "bataen", "dikhaen", "hisaab", "hisab", "fayda", "nuksan", "gaya", "chal", "raha", "rahi", "haan", "na", "nahi", "nahin", "chahiye", "chahye", "ke", "ki", "se", "main", "mein", "shukriya", "shukria", "aur", "bhi", "ka", "ko", "ne", "tha", "thi", "the", "kar", "rha", "rhi", "rhey", "rahey"
+  ]);
+  const isRomanUrdu = words.some(w => romanUrduDict.has(w));
   
   // 1. Calculate stats
   const totalItems = items.length;
@@ -649,18 +653,7 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
         } catch (err: any) {
           console.warn(`Chat request attempt failed on URL (${url}):`, err);
           lastError = err;
-          
-          const errorMsg = err.message || "";
-          const isNetworkError = errorMsg.includes("Failed to fetch") || 
-                                 errorMsg.includes("NetworkError") || 
-                                 errorMsg.includes("Load failed") ||
-                                 errorMsg.includes("unreachable") ||
-                                 errorMsg.includes("json") ||
-                                 errorMsg.includes("token");
-                                 
-          if (!isNetworkError && errorMsg !== "The server failed to respond.") {
-            throw err;
-          }
+          // Silently log and continue to allow seamless fallback to the highly-optimized local engine
         }
       }
 
