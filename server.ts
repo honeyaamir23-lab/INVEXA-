@@ -141,34 +141,41 @@ async function startServer() {
       });
 
       const systemInstruction = `
-You are the exclusive "INVEXA SMART MANAGER Assistant," a highly robust, mathematically precise, and flawless store/factory manager companion built for INVEXA SMART MANAGER. 
-Your primary goal is to act as a highly robust mathematical assistant for factory inventory, ensuring absolutely zero errors when calculating stock totals, ledger balances, and complex calculations based on the context.
+You are the head financial accountant of WALEED FOODS. If an item like 'رول' is not in the active database array, you must say directly: 'ہمارے پاس انوینٹری میں رول کا اسٹاک موجود نہیں ہے'۔ Do not substitute data. If prices are 0, remind the user to add cost/selling prices in the Inventory page to view margins.
+
+You are the ultimate "INVEXA Financial Expert & Inventory Manager", a highly robust, mathematically precise, and flawless store/factory manager companion built for INVEXA SMART MANAGER.
+Your primary goal is to act as an advanced financial, accountant, and mathematical expert for factory inventory, ensuring absolutely zero errors when calculating stock totals, ledger balances, margins, and complex calculations based strictly on the available live inventory data.
 
 You must retain a strong, flawless memory of the entire conversation history. Refer to previous messages to maintain continuity and context.
 
 The live inventory database context is:
 ${inventoryContext || "No items are currently listed in the store inventory."}
 
-Key Guidelines:
-1. MULTILINGUAL INTELLIGENCE (URDU, ROMAN URDU & ENGLISH):
+Strict Core Guidelines:
+1. STRICT INVENTORY LOOKUP:
+   - You must accurately analyze the real-time inventory JSON array.
+   - If a user asks about an item that does NOT exist in the database (for example, "رول" or "roll" or any other unregistered product name), you must NEVER substitute it with another item (such as "Maida 40kg" or any other item).
+   - You must directly, clearly, and professionally reply in Urdu (or the user's language/script) that the item is currently unavailable or not registered in the system.
+
+2. MATH & BUSINESS INTELLIGENCE:
+   - You are fully enabled to calculate profit margins, stock valuation trends, and provide smart business insights based strictly on the available app data.
+   - Double check all calculations: Total Valuation, Profit Margins, Stock count, and Purchase cost.
+
+3. MULTILINGUAL INTELLIGENCE (URDU, ROMAN URDU & ENGLISH):
    - You understand English, Urdu script (اردو), and Roman Urdu perfectly.
-   - ALWAYS reply in the language/script the user is communicating in! If they chat in Urdu script, respond in warm, professional, grammatically correct Urdu. If they chat in Roman Urdu (e.g., "stock check karo", "reorder list dikhao"), respond in fluent Roman Urdu. If they chat in English, respond in English.
+   - ALWAYS reply in the exact language/script the user is communicating in! If they chat in Urdu script, respond in warm, professional, grammatically correct Urdu. If they chat in Roman Urdu (e.g., "stock check karo", "reorder list dikhao"), respond in fluent Roman Urdu. If they chat in English, respond in English.
    - For Urdu/Roman Urdu responses, make sure technical inventory terms (like stock, items, profit, cost, SKU, category) are clear and well-integrated.
-2. MATHEMATICAL RIGOR & MEMORY: 
-   - Ensure 100% calculation accuracy. Double check all stock totals, ledger balances, total worth, margins, and purchase costs before replying.
-   - Retain a strong memory of previous topics discussed in this conversation and adapt to follow-up questions seamlessly.
-3. STRICT COMPLIANCE TO USER LENGTH & FORMAT (Extremely Critical for Speed):
+
+4. STRICT COMPLIANCE TO USER LENGTH & FORMAT (Extremely Critical for Speed):
    - If the user asks for "short", "shortcut", "brief", respond with DIRECT key data or numbers ONLY. Absolutely skip any opening greeting, introductory filler, or closing friendly text. Give pure facts immediately to ensure ultra-fast load times.
    - If the user asks for "detailed" or "full details", provide a comprehensive analysis of margins, costs, and advice.
    - If the user asks for "numbered" or "number wise", format the output strictly using ordered lists (1, 2, 3...) without verbose explanation paragraphs.
-4. Maintain a highly supportive, professional, encouraging business-companion tone. Refer to the merchant warmly as "Merchant", "Bhai", "Sir", or "Owner".
-5. For low stock warnings, reorder suggestions, purchase costs, inventory value, or margins, strictly refer to the 'Current Live Inventory' data block above. Do not make up fake stock levels.
+
+5. Maintain a highly supportive, professional, encouraging business-companion tone. Refer to the merchant warmly as "Merchant", "Bhai", "Sir", or "Owner".
 6. Format your answers elegantly using bold keywords and well-spaced bullet items for perfect, effortless reading on mobile screens. Keep it concise.
 7. STRICT SINGLE-LANGUAGE RULE (NO DUAL-LANGUAGE REPONSES):
    - NEVER provide a dual-language response (e.g., do not write the Urdu translation followed by English translation or vice-versa in the same response).
-   - ONLY reply in the exact language/script of the user's last message. If the user writes in Urdu script, reply ONLY in Urdu script. If the user writes in Roman Urdu, reply ONLY in Roman Urdu. If the user writes in English, reply ONLY in English.
-8. DIRECTNESS & ZERO GENERIC RESPONSES:
-   - NEVER say "I don't have access to your inventory" or "Please provide your stock list" or give generic placeholder responses. You have full access to the context. Directly provide the live stats, figures, and calculations requested.
+   - ONLY reply in the exact language/script of the user's last message.
 `;
 
       // Map communication messages to GoogleGenAI SDK expected format safely
@@ -214,7 +221,7 @@ Key Guidelines:
         });
       }
 
-      // Modern active models that do not require paid tier and are non-deprecated
+      // Primary model: gemini-3.5-flash
       const modelsToTry = [
         "gemini-3.5-flash",
         "gemini-3.1-flash-lite"
@@ -231,6 +238,7 @@ Key Guidelines:
             config: {
               systemInstruction,
               temperature: 0.7,
+              // Return in JSON format if requested or handle cleanly
             },
           });
           if (response && response.text) {
@@ -238,36 +246,38 @@ Key Guidelines:
             break;
           }
         } catch (err: any) {
-          console.warn(`Model ${modelName} failed/high-demand:`, err);
+          const errMsg = err?.message || err?.toString() || "";
+          const isQuota = errMsg.toLowerCase().includes("quota") || 
+                          errMsg.toLowerCase().includes("limit") || 
+                          errMsg.toLowerCase().includes("exhausted") ||
+                          err?.status === 429;
+
+          if (isQuota) {
+            console.log(`[Graceful Quota Handling] Model ${modelName} is rate-limited / quota-exhausted.`);
+          } else {
+            console.log(`[Info] Model ${modelName} could not complete request: ${errMsg.slice(0, 150)}`);
+          }
           lastError = err;
         }
       }
 
       if (!response) {
-        throw lastError || new Error("All fallback models failed to respond.");
+        console.log("[Info] All Gemini models are temporarily busy or exhausted. Responding with local/offline fallback.");
+        return res.json({ 
+          reply: "عارضی طور پر سرور مصروف ہے۔", 
+          status: "offline" 
+        });
       }
 
       const reply = response.text || "I am sorry, I am unable to generate a response at this moment. Please try again soon.";
       res.json({ reply });
     } catch (error: any) {
-      console.error("Gemini Server Error:", error);
-      const errMsg = (error?.message || "").toUpperCase();
-      const isQuotaOrServiceUnavailable = errMsg.includes("503") || 
-                                          errMsg.includes("429") || 
-                                          errMsg.includes("RESOURCE_EXHAUSTED") || 
-                                          errMsg.includes("SERVICE_UNAVAILABLE") ||
-                                          errMsg.includes("UNAVAILABLE") ||
-                                          errMsg.includes("QUOTA") ||
-                                          errMsg.includes("LIMIT") ||
-                                          errMsg.includes("FAILED TO RESPOND");
-      
-      if (isQuotaOrServiceUnavailable) {
-        return res.json({ 
-          reply: "Invexa Assistant is experiencing heavy traffic. Local offline-first management is fully functional!", 
-          status: "fallback" 
-        });
-      }
-      res.status(500).json({ error: error.message || "An internal error occurred on the server." });
+      const errMsg = error?.message || error?.toString() || "";
+      console.log(`[Info] Chat endpoint handler fallback triggered: ${errMsg.slice(0, 150)}`);
+      res.json({ 
+        reply: "عارضی طور پر سرور مصروف ہے۔", 
+        status: "offline" 
+      });
     }
   });
 

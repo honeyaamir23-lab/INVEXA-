@@ -95,6 +95,18 @@ const getLocalAssistantResponse = (userText: string, items: Item[], moves: Stock
     const margin = mentionedProduct.price - (mentionedProduct.costPrice || 0);
     const itemMarginPercent = mentionedProduct.price > 0 ? (margin / mentionedProduct.price) * 100 : 0;
     
+    // Warning if prices are 0
+    let zeroWarning = "";
+    if (mentionedProduct.price === 0 || (mentionedProduct.costPrice === undefined || mentionedProduct.costPrice === 0)) {
+      if (isUrduScript) {
+        zeroWarning = "\n\n⚠️ **نوٹ:** اس پروڈکٹ کی خرید یا فروخت کی قیمت 0 درج ہے۔ منافع دیکھنے کے لیے براہ کرم انوینٹری پیج پر قیمتیں درست کریں۔";
+      } else if (isRomanUrdu) {
+        zeroWarning = "\n\n⚠️ **Note:** Is product ki purchase ya selling price 0 enter hai. Margin check karne ke liye please Inventory page par rates update karein.";
+      } else {
+        zeroWarning = "\n\n⚠️ **Note:** The purchase or selling price of this item is set to 0. Please update prices in the Inventory page to calculate profit margins.";
+      }
+    }
+
     if (isUrduScript) {
       return `### 🔍 پروڈکٹ کی تفصیلات: ${mentionedProduct.name}
 آپ کی مطلوبہ پروڈکٹ کا لائیو ڈیٹا مندرجہ ذیل ہے:
@@ -109,7 +121,7 @@ const getLocalAssistantResponse = (userText: string, items: Item[], moves: Stock
 - 🔑 **SKU کوڈ:** \`${mentionedProduct.sku || "N/A"}\`
 ${mentionedProduct.expiryDate ? `- 📅 **ایکسپائری تاریخ:** ${mentionedProduct.expiryDate}` : ""}
 
-*اسٹاک کی حالت:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **فوری توجہ کی ضرورت ہے!** اسٹاک حد سے کم ہو گیا ہے۔" : "✅ **اسٹاک محفوظ حد میں ہے۔**"}`;
+*اسٹاک کی حالت:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **فوری توجہ کی ضرورت ہے!** اسٹاک حد سے کم ہو گیا ہے۔" : "✅ **اسٹاک محفوظ حد میں ہے۔**"}${zeroWarning}`;
     } else if (isRomanUrdu) {
       return `### 🔍 Product Details: ${mentionedProduct.name}
 Aap ki product ki mukammal live details niche di gayi hain:
@@ -124,7 +136,7 @@ Aap ki product ki mukammal live details niche di gayi hain:
 - 🔑 **SKU:** \`${mentionedProduct.sku || "N/A"}\`
 ${mentionedProduct.expiryDate ? `- 📅 **Expiry Date:** ${mentionedProduct.expiryDate}` : ""}
 
-*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Reorder Alert!** Stock warning limit se kam hai." : "✅ **Stock safe limit mein hai.**"}`;
+*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Reorder Alert!** Stock warning limit se kam hai." : "✅ **Stock safe limit mein hai.**"}${zeroWarning}`;
     }
     return `### 🔍 Product Details: ${mentionedProduct.name}
 Here is the live metadata and inventory state for this item:
@@ -139,7 +151,35 @@ Here is the live metadata and inventory state for this item:
 - 🔑 **SKU:** \`${mentionedProduct.sku || "N/A"}\`
 ${mentionedProduct.expiryDate ? `- 📅 **Expiry Date:** ${mentionedProduct.expiryDate}` : ""}
 
-*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Needs Reordering!** Running below limit." : "✅ **Stock Level Healthy.**"}`;
+*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Needs Reordering!** Running below limit." : "✅ **Stock Level Healthy.**"}${zeroWarning}`;
+  }
+
+  // Smart Unmatched Product Detector (e.g. asking about 'رول' or some unregistered name)
+  const isAskingAboutSpecificItem = (
+    query.includes("کتنا") || query.includes("کتنی") || query.includes("کہاں") || query.includes("کدھر") || query.includes("ہے") || query.includes("موجود") ||
+    query.includes("stock") || query.includes("price") || query.includes("rate") || query.includes("check") || query.includes("بتاؤ") || query.includes("دکھاؤ") ||
+    query.includes("batao") || query.includes("bataen") || query.includes("dikhao") || query.includes("dikhaen") || query.includes("roll") || query.includes("رول")
+  );
+
+  if (isAskingAboutSpecificItem) {
+    // Attempt to extract candidate product word from query
+    const wordsList = query.split(/[^a-zA-Z\u0600-\u06FF]+/);
+    const fillers = new Set([
+      "ka", "ki", "ko", "se", "aur", "bhi", "hai", "he", "kya", "kia", "batao", "btao", "dikhao", "stock", "price", "cost", "qty", "limit", "items", "product", "the", "for", "with", "and", "in", "of", "to", "at", "on", "a", "an", "please", "show", "tell", "get", "check", "کا", "کی", "کو", "سے", "اور", "بھی", "ہے", "کیا", "بتاؤ", "دکھاؤ", "اسٹاک", "سٹاک", "قیمت", "کے", "میں", "کتنا", "کتنی", "کدھر", "کہاں"
+    ]);
+    const candidates = wordsList.filter(w => w.length >= 2 && !fillers.has(w));
+    const candidate = candidates.length > 0 ? candidates[0] : "";
+
+    if (isUrduScript) {
+      const displayItemName = candidate || "اس پروڈکٹ";
+      return `ہمارے پاس انوینٹری میں **${displayItemName}** کا اسٹاک موجود نہیں ہے اور نہ ہی یہ پروڈکٹ سسٹم میں رجسٹرڈ ہے۔ اگر آپ اسے ایڈ کرنا چاہتے ہیں تو براہ کرم انوینٹری پیج پر جا کر اسے شامل کریں تاکہ اس کی مارجین اور مقدار ٹریک ہوسکے!`;
+    } else if (isRomanUrdu) {
+      const displayItemName = candidate || "is product";
+      return `Hamaare paas inventory mein **${displayItemName}** ka stock majood nahi hai aur na hi yeh product system mein registered hai. Agar aap isey add karna chahte hain to please Inventory page par ja kar add karein!`;
+    } else {
+      const displayItemName = candidate || "this product";
+      return `We do not have **${displayItemName}** in our live stock, and it is not registered in the system. Please add it first on the Inventory page if you wish to track its metrics!`;
+    }
   }
 
   // AA. General Stock / Inventory Query
@@ -259,6 +299,20 @@ ${list}
 
   // C. Financials, Valuation, Profit Margin, Investment
   if (query.includes("valuation") || query.includes("profit") || query.includes("margin") || query.includes("worth") || query.includes("cost") || query.includes("investment") || query.includes("capital") || query.includes("paisa") || query.includes("maliaat") || query.includes("budget") || query.includes("hisaab") || query.includes("hisab") || query.includes("حساب") || query.includes("لیجر") || query.includes("قيمت") || query.includes("قیمت") || query.includes("مال") || query.includes("منافع") || query.includes("کل") || query.includes("فنانشل") || query.includes("faida") || query.includes("munafa") || query.includes("invest") || query.includes("sarmaya") || query.includes("khareed") || query.includes("bech")) {
+    
+    // Check if there are products with 0 prices or 0 cost prices
+    const hasZeroRates = items.some(item => item.price === 0 || (item.costPrice === undefined || item.costPrice === 0));
+    
+    let priceWarningUrdu = "";
+    let priceWarningRoman = "";
+    let priceWarningEnglish = "";
+    
+    if (hasZeroRates) {
+      priceWarningUrdu = `\n\n⚠️ **اہم الرٹ:** انوینٹری میں کچھ پروڈکٹس کی خرید یا فروخت کی قیمت 0 درج ہے۔ صحیح منافع (Margins) دیکھنے کے لیے براہ کرم انوینٹری پیج پر جا کر قیمتیں شامل کریں۔`;
+      priceWarningRoman = `\n\n⚠️ **Important Alert:** Inventory mein kuch products ki cost ya selling price 0 enter hai. Sahi margins aur expected profits dekhne ke liye please Inventory page par rates correct karein.`;
+      priceWarningEnglish = `\n\n⚠️ **Important Alert:** Some items in your inventory have a purchase or selling price of 0. Please update prices on the Inventory page to calculate accurate profit margins and financial forecasts.`;
+    }
+
     if (isUrduScript) {
       return `### 📊 اسٹور کی مالی حالت اور ویلیو ایشن
 یہاں آپ کی انوینٹری کا لائیو فنانشل ریکارڈ ہے:
@@ -269,7 +323,7 @@ ${list}
 - 📈 **ممکنہ کل منافع (Expected Profit):** **Rs. ${potentialProfit.toLocaleString()}**
 - ✨ **اوسط منافع مارجن %:** **${marginPercentage.toFixed(1)}%**
 
-*نوٹ: یہ حساب کتاب آپ کے لائیو اسٹاک اور خرید/فروخت کی قیمتوں پر مبنی ہے۔*`;
+*نوٹ: یہ حساب کتاب آپ کے لائیو اسٹاک اور خرید/فروخت کی قیمتوں پر مبنی ہے۔*${priceWarningUrdu}`;
     } else if (isRomanUrdu) {
       return `### 📊 Store Financial & Valuation Status
 Aap ki live inventory key financial details niche di gayi hain:
@@ -280,7 +334,7 @@ Aap ki live inventory key financial details niche di gayi hain:
 - 📈 **Expected Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
 - ✨ **Average Profit Margin %:** **${marginPercentage.toFixed(1)}%**
 
-*Note: Yeh calculation aap ke live stock quantity aur rates par mabni hai.*`;
+*Note: Yeh calculation aap ke live stock quantity aur rates par mabni hai.*${priceWarningRoman}`;
     }
     return `### 📊 Store Financial Overview
 Here is the real-time financial valuation of your inventory:
@@ -291,7 +345,7 @@ Here is the real-time financial valuation of your inventory:
 - 📈 **Potential Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
 - ✨ **Average Profit Margin %:** **${marginPercentage.toFixed(1)}%**
 
-*Note: These figures are based on your current stocked quantities and purchase/selling prices.*`;
+*Note: These figures are based on your current stocked quantities and purchase/selling prices.*${priceWarningEnglish}`;
   }
 
   // D. Most Stocked Items
@@ -590,7 +644,8 @@ const isSpecificLocalQuery = (userText: string, items: Item[]): boolean => {
     "category", "categories", "کیٹیگری", "supplier", "vendor", "سپلائر",
     "move", "history", "ledger", "tabdeeli", "expiry", "expired", "expiring", "ایکسپائری",
     "total items", "count", "تعداد", "پروڈکٹس",
-    "grow", "improve", "business", "karobar", "بڑھانے", "طریقہ", "مشورہ"
+    "grow", "improve", "business", "karobar", "بڑھانے", "طریقہ", "مشورہ",
+    "roll", "رول", "کتنا", "کتنی", "کہاں", "کدھر", "موجود", "check", "بتاؤ", "دکھاؤ", "batao", "bataen", "dikhao", "dikhaen", "ہے"
   ];
   
   // If query contains any of the target keywords
@@ -745,7 +800,15 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
       for (const url of uniqueUrls) {
         try {
           const endpointUrl = url ? `${url}/api/chat` : "/api/chat";
-          console.log(`Sending ChatBot context API call to: ${endpointUrl}`);
+          
+          const payload = {
+            messages: [...messages, userMsg],
+            inventoryContext,
+          };
+          const payloadString = JSON.stringify(payload);
+          const payloadSize = new Blob([payloadString]).size;
+          
+          console.log(`[ChatBot Request Diagnostics] Initiating call to: ${endpointUrl}. Payload size: ${payloadSize} bytes. Browser isOnline: ${navigator.onLine}`);
           
           const controller = new AbortController();
           const timeoutId = setTimeout(() => {
@@ -755,10 +818,7 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
           const response = await fetch(endpointUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages: [...messages, userMsg],
-              inventoryContext,
-            }),
+            body: payloadString,
             signal: controller.signal,
           });
 
@@ -796,7 +856,9 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
                                         replyLower.includes("high demand") || 
                                         replyLower.includes("rate limit") || 
                                         replyLower.includes("unable to generate") || 
-                                        replyLower.includes("sorry, i am unable");
+                                        replyLower.includes("sorry, i am unable") ||
+                                        replyLower.includes("مصروف") ||
+                                        parsed.status === "offline";
             if (hasAPIErrorIndicator) {
               console.warn("Server response contains API limitation message, triggering offline fallback...");
               throw new Error("Generic API error response caught.");
@@ -808,6 +870,25 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
             break; // Succeeded! Exit the retry loop.
           }
         } catch (err: any) {
+          const payload = {
+            messages: [...messages, userMsg],
+            inventoryContext,
+          };
+          const payloadString = JSON.stringify(payload);
+          const payloadSize = new Blob([payloadString]).size;
+
+          const structuredErrorLog = {
+            event: "CHATBOT_API_CALL_FAILURE",
+            timestamp: new Date().toISOString(),
+            targetEndpoint: url ? `${url}/api/chat` : "/api/chat",
+            networkStatus: navigator.onLine ? "ONLINE" : "OFFLINE",
+            payloadSizeBytes: payloadSize,
+            errorName: err?.name || "UnknownError",
+            errorMessage: err?.message || String(err),
+            isFormatMismatchCandidate: payloadSize > 120000 ? "HIGH_PROBABILITY" : "LOW_PROBABILITY"
+          };
+          
+          console.error("Structured ChatBot Error Diagnostics:", JSON.stringify(structuredErrorLog, null, 2));
           console.warn(`Chat request attempt failed on URL (${url}):`, err);
           lastError = err;
         }
@@ -821,9 +902,22 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
           const localReply = getLocalAssistantResponse(textToSend, items, moves);
           data = { reply: localReply };
         } else {
-          data = {
-            reply: "I am currently running offline or having trouble reaching the Gemini server. Please check your internet connection to ask general business questions. In offline mode, I can only help with stock level reports, asset valuations, and low-stock warnings."
-          };
+          const isUrduScript = /[\u0600-\u06FF]/.test(textToSend);
+          const wordsList = textToSend.toLowerCase().trim().split(/[^a-zA-Z]+/);
+          const romanUrduDict = new Set([
+            "bhai", "hai", "he", "kya", "kia", "karo", "dikhao", "kam", "zyada", "faida", "nuqsan", "kaise", "ko", "shuru", "btao", "batao", "khatam", "sasta", "mehnga", "mujhe", "bataen", "dikhaen", "hisaab", "hisab", "fayda", "nuksan", "gaya", "chal", "raha", "rahi", "haan", "na", "nahi", "nahin", "chahiye", "chahye", "ke", "ki", "se", "main", "mein", "shukriya", "shukria", "aur", "bhi", "ka", "ko", "ne", "tha", "thi", "the", "kar", "rha", "rhi", "rhey", "rahey"
+          ]);
+          const isRomanUrdu = wordsList.some(w => romanUrduDict.has(w));
+
+          let offlineReply = "";
+          if (isUrduScript) {
+            offlineReply = "میں اس وقت آف لائن موڈ میں کام کر رہا ہوں اور سرور سے کنکشن میں عارضی تاخیر ہے۔ لیکن آپ کا کاروباری ڈیٹا بالکل محفوظ ہے! آف لائن موڈ میں، میں آپ کو اسٹاک کی تفصیلات، مالیت (valuation)، منافع کے حساب کتاب، اور کم اسٹاک (low stock) کی رپورٹس فوری فراہم کر سکتا ہوں۔ آپ انوینٹری کے متعلق کوئی بھی سوال پوچھ سکتے ہیں!";
+          } else if (isRomanUrdu) {
+            offlineReply = "Main is waqt offline mode mein kaam kar raha hoon aur server se temporary connection delay hai. Lekin aap ka business data bilkul safe hai! Offline mode mein, main aap ko stock details, store valuation, profit/margins calculations, aur low-stock warning reports instant de sakta hoon. Aap inventory ke mutalik koi bhi sawal pooch sakte hain!";
+          } else {
+            offlineReply = "I am currently operating in offline mode as the server is temporarily unreachable. Your business data is 100% safe! In offline mode, I can still assist you with instant stock reports, store valuations, profit margins, and low-stock reorder warnings. Feel free to ask about your inventory!";
+          }
+          data = { reply: offlineReply };
         }
       }
 
@@ -847,8 +941,37 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "A connection error occurred. Please verify your internet connection.");
+      console.error("Silent ChatBot recovery executed:", err);
+      
+      // Fallback gracefully instead of popping up red error banners
+      const isUrduScript = /[\u0600-\u06FF]/.test(textToSend);
+      const wordsList = textToSend.toLowerCase().trim().split(/[^a-zA-Z]+/);
+      const romanUrduDict = new Set([
+        "bhai", "hai", "he", "kya", "kia", "karo", "dikhao", "kam", "zyada", "faida", "nuqsan", "kaise", "ko", "shuru", "btao", "batao", "khatam", "sasta", "mehnga", "mujhe", "bataen", "dikhaen", "hisaab", "hisab", "fayda", "nuksan", "gaya", "chal", "raha", "rahi", "haan", "na", "nahi", "nahin", "chahiye", "chahye", "ke", "ki", "se", "main", "mein", "shukriya", "shukria", "aur", "bhi", "ka", "ko", "ne", "tha", "thi", "the", "kar", "rha", "rhi", "rhey", "rahey"
+      ]);
+      const isRomanUrdu = wordsList.some(w => romanUrduDict.has(w));
+      
+      let fallbackText = "";
+      const isInventory = isSpecificLocalQuery(textToSend, items);
+      if (isInventory) {
+        fallbackText = getLocalAssistantResponse(textToSend, items, moves);
+      } else {
+        if (isUrduScript) {
+          fallbackText = "معذرت، اس وقت سرور سے رابطہ نہیں ہو پا رہا۔ لیکن آپ کی انوینٹری کا تمام ریکارڈ محفوظ ہے اور میں آف لائن موڈ میں بھی آپ کے اسٹاک، فنانشل رپورٹس اور ری آرڈر لسٹ کا حساب کتاب لگا سکتا ہوں! آپ انوینٹری کے متعلق بلا جھجھک سوال پوچھ سکتے ہیں۔";
+        } else if (isRomanUrdu) {
+          fallbackText = "Maazrat, is waqt server se rabta nahi ho pa rha. Lekin aap ki inventory ka tamam record safe hai aur main offline mode mein bhi aap ke stock, financial reports aur reorder list ki calculation kar sakta hoon! Aap inventory ke mutalik sawal pooch sakte hain.";
+        } else {
+          fallbackText = "Apologies, there is a temporary connection issue. However, your local database is secure and I can still calculate stock levels, valuations, and margins in offline mode! Feel free to ask about your inventory.";
+        }
+      }
+
+      const assistantMsg: ChatMessage = {
+        id: Math.random().toString(),
+        role: "assistant",
+        text: fallbackText,
+        timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
     } finally {
       setLoading(false);
     }
@@ -925,11 +1048,12 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
               ref={scrollRef}
               className="flex-grow p-3 overflow-y-auto space-y-2.5 bg-slate-50 text-slate-800"
             >
-              {messages.map((m) => {
+              {(messages as any[]).map((m: any) => {
                 const isAssistant = m.role === "assistant" || m.role === "model";
+                const messageText = m.text || m.reply || "";
                 return (
                   <div
-                    key={m.id}
+                    key={m.id || Math.random().toString()}
                     className={`flex gap-2 max-w-[88%] ${
                       isAssistant ? "mr-auto text-left" : "ml-auto flex-row-reverse text-right"
                     }`}
@@ -953,7 +1077,7 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
                         }`}
                         style={{ whiteSpace: "pre-wrap" }}
                       >
-                        {m.text}
+                        {messageText}
                       </div>
                       <span className="text-[7px] text-slate-400 block px-1 mt-0.5">
                         {m.timestamp}
