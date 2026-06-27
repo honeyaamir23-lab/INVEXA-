@@ -167,13 +167,43 @@ Key Guidelines:
 `;
 
       // Map communication messages to GoogleGenAI SDK expected format
-      const formattedContents = messages.map((m: any) => {
+      let formattedContents = messages.map((m: any) => {
         const role = m.role === "assistant" || m.role === "model" ? "model" : "user";
         return {
           role,
           parts: [{ text: m.text || m.content || "" }]
         };
       });
+
+      // Strictly sanitize contents to adhere to Gemini API requirements:
+      // 1. Must start with "user" role
+      while (formattedContents.length > 0 && formattedContents[0].role !== "user") {
+        formattedContents.shift();
+      }
+
+      // 2. Must alternate roles. If consecutive identical roles exist, merge them.
+      const sanitizedContents: any[] = [];
+      for (const turn of formattedContents) {
+        if (sanitizedContents.length === 0) {
+          sanitizedContents.push(turn);
+        } else {
+          const lastTurn = sanitizedContents[sanitizedContents.length - 1];
+          if (lastTurn.role === turn.role) {
+            lastTurn.parts[0].text += "\n" + turn.parts[0].text;
+          } else {
+            sanitizedContents.push(turn);
+          }
+        }
+      }
+      formattedContents = sanitizedContents;
+
+      // If after sanitation we have no messages, add a default fallback user turn
+      if (formattedContents.length === 0) {
+        formattedContents.push({
+          role: "user",
+          parts: [{ text: "Hello INVEXA Assistant, please greet me in my language." }]
+        });
+      }
 
       // Robust fallback retry system for models to handle 503/high demand issues gracefully
       const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];

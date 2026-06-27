@@ -85,6 +85,51 @@ ${mentionedProduct.expiryDate ? `- 📅 **Expiry Date:** ${mentionedProduct.expi
 *Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Needs Reordering!** Running below limit." : "✅ **Stock Level Healthy.**"}`;
   }
 
+  // AA. General Stock / Inventory Query
+  if (query.includes("stock") || query.includes("سٹاک") || query.includes("انوینٹری") || query.includes("maal") || query.includes("mal") || query.includes("items") || query.includes("products") || query.includes("آئٹم") || query.includes("آئٹمز") || query.includes("inventory")) {
+    const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
+    const list = items.slice(0, 10).map(item => `- **${item.name}**: **${item.qty} ${item.unit}** (Price: Rs ${item.price.toLocaleString()})`).join("\n");
+    const remainingCount = items.length - 10;
+    const footer = remainingCount > 0 ? `\n*and ${remainingCount} more products in your catalog.*` : "";
+    
+    if (isUrduScript) {
+      return `### 📦 اسٹاک کی موجودہ صورتحال (Stock Report)
+آپ کے پاس کل **${totalItems}** پروڈکٹس رجسٹرڈ ہیں، اور کل اسٹاک کی مقدار **${totalQty}** یونٹس ہے۔
+
+**اہم پروڈکٹس کا اسٹاک:**
+${list || "کوئی پروڈکٹ ریکارڈ موجود نہیں ہے۔"}
+${footer}
+
+- ⚠️ **کم اسٹاک والی اشیاء:** **${lowStockItems.length}** پروڈکٹس
+- 🚫 **آؤٹ آف اسٹاک اشیاء:** **${outOfStockItems.length}** پروڈکٹس
+
+*اگر آپ کسی مخصوص پروڈکٹ کا اسٹاک معلوم کرنا چاہتے ہیں تو اس کا نام لکھیں!*`;
+    } else if (isRomanUrdu) {
+      return `### 📦 Current Stock Status
+Aap ke paas total **${totalItems}** products listed hain, aur total stock quantity **${totalQty}** units hai.
+
+**Main Products Stock:**
+${list || "Koi product record majood nahi hai."}
+${footer}
+
+- ⚠️ **Low Stock Items:** **${lowStockItems.length}** products
+- 🚫 **Out of Stock Items:** **${outOfStockItems.length}** products
+
+*Kisi specific product ka stock dekhne ke liye uska naam likhein.*`;
+    }
+    return `### 📦 Current Stock Status
+You have a total of **${totalItems}** registered products, with a total physical stock of **${totalQty}** units.
+
+**Current Stock List (Top 10):**
+${list || "No product records available."}
+${footer}
+
+- ⚠️ **Low Stock Warnings:** **${lowStockItems.length}** products
+- 🚫 **Out of Stock Items:** **${outOfStockItems.length}** products
+
+*To check stock for a specific item, please type its name directly.*`;
+  }
+
   // A. Low Stock Query
   if (query.includes("low") || query.includes("short") || query.includes("reorder") || query.includes("کم") || query.includes("شارٹ") || query.includes("کم اسٹاک") || query.includes("limit")) {
     if (lowStockItems.length === 0) {
