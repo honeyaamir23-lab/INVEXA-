@@ -4,6 +4,107 @@ import { Send, Sparkles, X, Bot, User, RefreshCw, AlertCircle, MessageCircle } f
 import { motion, AnimatePresence } from "motion/react";
 import { dbService } from "../db";
 
+// Resilient Offline/Local analysis engine to ensure 100% uptime for store owners
+const getLocalAssistantResponse = (userText: string, items: Item[], moves: StockMove[]): string => {
+  const query = userText.toLowerCase().trim();
+  
+  // 1. Calculate stats
+  const totalItems = items.length;
+  const lowStockItems = items.filter(item => item.qty <= item.minQty);
+  const outOfStockItems = items.filter(item => item.qty === 0);
+  
+  let totalCost = 0;
+  let totalValue = 0;
+  items.forEach(item => {
+    totalCost += (item.costPrice || 0) * item.qty;
+    totalValue += (item.price || 0) * item.qty;
+  });
+  const potentialProfit = totalValue - totalCost;
+  const marginPercentage = totalValue > 0 ? (potentialProfit / totalValue) * 100 : 0;
+
+  // 2. Format replies
+  if (query.includes("low") || (query.includes("stock") && (query.includes("low") || query.includes("minimum") || query.includes("کم") || query.includes("شارٹ")))) {
+    if (lowStockItems.length === 0) {
+      return `**Great news!** All your products are fully stocked. There are currently **no low-stock items** in your store.`;
+    }
+    const list = lowStockItems.map(item => `- **${item.name}** (SKU: ${item.sku || "N/A"}): Current Qty: **${item.qty} ${item.unit}** (Min threshold: ${item.minQty} ${item.unit})`).join("\n");
+    return `### ⚠️ Low Stock Alert\nYou have **${lowStockItems.length}** product(s) running below their minimum limit:\n\n${list}\n\n*Suggestion: Please reorder these items soon to prevent stockouts!*`;
+  }
+
+  if (query.includes("valuation") || query.includes("profit") || query.includes("margin") || query.includes("worth") || query.includes("قیمت") || query.includes("مال") || query.includes("منافع") || query.includes("کل")) {
+    return `### 📊 Store Financial Overview
+Here is the real-time financial valuation of your inventory:
+
+- 📦 **Total Active Products:** **${totalItems}** items
+- 💰 **Total Inventory Cost (Investment):** **Rs. ${totalCost.toLocaleString()}**
+- 🏷️ **Total Store Retail Value:** **Rs. ${totalValue.toLocaleString()}**
+- 📈 **Potential Profit Margin:** **Rs. ${potentialProfit.toLocaleString()}**
+- ✨ **Average Profit Margin %:** **${marginPercentage.toFixed(1)}%**
+
+*Note: These figures are based on your current stocked quantities and purchase/selling prices.*`;
+  }
+
+  if (query.includes("out of") || query.includes("zero") || query.includes("ختم")) {
+    if (outOfStockItems.length === 0) {
+      return `🎉 **Amazing!** None of your products are completely out of stock. Everything has active inventory!`;
+    }
+    const list = outOfStockItems.map(item => `- **${item.name}** (SKU: ${item.sku || "N/A"})`).join("\n");
+    return `### 🚫 Out of Stock Items\nThe following **${outOfStockItems.length}** product(s) have exactly **0** quantity remaining:\n\n${list}\n\n*Action needed: Update these stock levels as soon as you receive new shipments.*`;
+  }
+
+  if (query.includes("move") || query.includes("history") || query.includes("ledger") || query.includes("تبدیلی") || query.includes("ریکارڈ")) {
+    if (!moves || moves.length === 0) {
+      return `There are no recent stock movements or log entries recorded in this store yet.`;
+    }
+    const recent = moves.slice(-5).reverse();
+    const list = recent.map(m => `- **${m.itemName}**: **${m.qty > 0 ? "+" : ""}${m.qty}** (${m.type}) - *${m.reason}* on ${new Date(m.date).toLocaleDateString()}`).join("\n");
+    return `### 📝 Recent Stock Moves Log (Last 5)\nHere are the most recent inventory adjustments:\n\n${list}`;
+  }
+
+  if (query.includes("hello") || query.includes("hi") || query.includes("hey") || query.includes("سلام") || query.includes("ہیلو") || query.includes("اپ کون")) {
+    return `### 👋 Assalam-o-Alaikum! I am INVEXA SMART MANAGER Assistant
+Your resilient, built-in store companion. I am fully loaded with your live inventory context and ready to help!
+
+You can ask me questions like:
+1. **"Which products are low in stock?"**
+2. **"What is the total valuation & profit margin?"**
+3. **"Show recent stock moves history"**
+4. **"Which items are completely out of stock?"**
+
+How can I assist you with your business today?`;
+  }
+
+  // Find a specific product mentioned
+  const mentionedProduct = items.find(item => query.includes(item.name.toLowerCase()));
+  if (mentionedProduct) {
+    const margin = mentionedProduct.price - (mentionedProduct.costPrice || 0);
+    const itemMarginPercent = mentionedProduct.price > 0 ? (margin / mentionedProduct.price) * 100 : 0;
+    return `### 🔍 Product Details: ${mentionedProduct.name}
+Here is the live status for the product you mentioned:
+
+- 📦 **Current Stock Level:** **${mentionedProduct.qty} ${mentionedProduct.unit}**
+- ⚠️ **Min Stock Limit:** **${mentionedProduct.minQty} ${mentionedProduct.unit}**
+- 🛒 **Retail Selling Price:** **Rs. ${mentionedProduct.price.toLocaleString()}**
+- 💼 **Purchase Cost Price:** **Rs. ${(mentionedProduct.costPrice || 0).toLocaleString()}**
+- 📈 **Unit Profit Margin:** **Rs. ${margin.toLocaleString()}** (${itemMarginPercent.toFixed(1)}%)
+- 🏷️ **Brand & Category:** ${mentionedProduct.brand || "None"} | ${mentionedProduct.category || "General"}
+- 📍 **Warehouse Location:** ${mentionedProduct.location || "Default Shelf"}
+- 🔑 **SKU:** \`${mentionedProduct.sku || "N/A"}\`
+${mentionedProduct.expiryDate ? `- 📅 **Expiry Date:** ${mentionedProduct.expiryDate}` : ""}
+
+*Status:* ${mentionedProduct.qty <= mentionedProduct.minQty ? "⚠️ **Needs Reordering!** Running below limit." : "✅ **Stock Level Healthy.**"}`;
+  }
+
+  return `### 💡 Live Merchant Assistant
+I have analyzed your request against your **${totalItems} active products** and logged stock history:
+
+- 📦 **Total Products:** **${totalItems}**
+- ⚠️ **Low Stock Alert:** **${lowStockItems.length}** item(s) running low.
+- 💰 **Total Inventory Net Worth:** **Rs. ${totalValue.toLocaleString()}**
+
+*I didn't quite catch the specific details for your query. Try asking about **"low stock"**, **"total valuation"**, or mention a specific product name from your catalog!*`;
+};
+
 interface ChatBotProps {
   items: Item[];
   moves: StockMove[];
@@ -150,10 +251,32 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
             }),
           });
 
-          const parsed = await response.json();
-          if (!response.ok) {
-            throw new Error(parsed.error || "The server failed to respond.");
+          let parsed: any = null;
+          if (response.ok) {
+            const contentType = response.headers.get("content-type") || "";
+            if (contentType.includes("application/json")) {
+              parsed = await response.json();
+            } else {
+              const text = await response.text();
+              parsed = { reply: text };
+            }
+          } else {
+            // It's an error response (e.g., 500, 502, 504)
+            let errorText = "";
+            try {
+              const contentType = response.headers.get("content-type") || "";
+              if (contentType.includes("application/json")) {
+                const errJson = await response.json();
+                errorText = errJson.error || errJson.message || "";
+              } else {
+                errorText = await response.text();
+              }
+            } catch (e) {
+              errorText = `Status code ${response.status}`;
+            }
+            throw new Error(errorText || `The server returned an error (status: ${response.status}).`);
           }
+
           data = parsed;
           break; // Succeeded! Exit the retry loop.
         } catch (err: any) {
@@ -165,7 +288,9 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
           const isNetworkError = errorMsg.includes("Failed to fetch") || 
                                  errorMsg.includes("NetworkError") || 
                                  errorMsg.includes("Load failed") ||
-                                 errorMsg.includes("unreachable");
+                                 errorMsg.includes("unreachable") ||
+                                 errorMsg.includes("json") ||
+                                 errorMsg.includes("token");
                                  
           if (!isNetworkError && errorMsg !== "The server failed to respond.") {
             throw err; // Propagate critical issues (like missing API Key) directly to the user
@@ -174,7 +299,23 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
       }
 
       if (!data) {
-        throw lastError || new Error("Failed to reach the assistant server. Please check your network or try again.");
+        console.log("Central servers unreachable or misconfigured. Running local offline engine...");
+        const localReply = getLocalAssistantResponse(textToSend, items, moves);
+        
+        // Check if there was a structural server error (like missing API key) to append guidance
+        const lastErrorMsg = (lastError?.message || "").toLowerCase();
+        const isApiKeyIssue = lastErrorMsg.includes("key") || lastErrorMsg.includes("unauthorized") || lastErrorMsg.includes("configure");
+        
+        let warningText = "";
+        if (isApiKeyIssue) {
+          warningText = `\n\n---\n*💡 Developer Note: The server's GEMINI_API_KEY is not configured yet. Add it in the Settings panel of AI Studio to activate full AI features.*`;
+        } else {
+          warningText = `\n\n---\n*⚡ Running in local merchant engine mode (Offline Resilient Mode).*`;
+        }
+        
+        data = {
+          reply: `${localReply}${warningText}`
+        };
       }
 
       // Add assistant response
