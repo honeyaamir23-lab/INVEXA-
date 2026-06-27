@@ -4,6 +4,66 @@ import { Send, Sparkles, X, Bot, User, RefreshCw, AlertCircle, MessageCircle } f
 import { motion, AnimatePresence } from "motion/react";
 import { dbService } from "../db";
 
+// Helper to find mentioned product in inventory using robust partial/token matching
+const findMentionedProduct = (query: string, items: Item[]): Item | undefined => {
+  const cleanQuery = query.toLowerCase().trim();
+  if (!cleanQuery) return undefined;
+
+  // 1. Exact or whole-string containment matches first (highest priority)
+  for (const item of items) {
+    const nameLower = item.name.toLowerCase();
+    const skuLower = item.sku ? item.sku.toLowerCase() : "";
+
+    if (cleanQuery === nameLower || nameLower === cleanQuery) {
+      return item;
+    }
+    if (cleanQuery.includes(nameLower) || nameLower.includes(cleanQuery)) {
+      return item;
+    }
+    if (skuLower && (cleanQuery.includes(skuLower) || skuLower.includes(cleanQuery))) {
+      return item;
+    }
+  }
+
+  // 2. Word-by-word intersection with filler words filtered out
+  const fillers = new Set([
+    "ka", "ki", "ko", "se", "aur", "bhi", "hai", "he", "kya", "kia", "batao", "btao", "dikhao", "stock", "price", "cost", "qty", "limit", "items", "product", "the", "for", "with", "and", "in", "of", "to", "at", "on", "a", "an", "کا", "کی", "کو", "سے", "اور", "بھی", "ہے", "کیا", "بتاؤ", "دکھاؤ", "اسٹاک", "سٹاک", "قیمت", "کے", "میں"
+  ]);
+
+  // Extract alphanumeric tokens from query
+  const queryTokens = cleanQuery.split(/[^a-z0-9\u0600-\u06FF]+/).filter(t => t.length >= 2 && !fillers.has(t));
+  if (queryTokens.length === 0) return undefined;
+
+  let bestItem: Item | undefined = undefined;
+  let maxScore = 0;
+
+  for (const item of items) {
+    const nameLower = item.name.toLowerCase();
+    const itemTokens = nameLower.split(/[^a-z0-9\u0600-\u06FF]+/).filter(t => t.length >= 2 && !fillers.has(t));
+
+    let score = 0;
+    for (const qToken of queryTokens) {
+      if (nameLower.includes(qToken)) {
+        score += 3; // direct containment
+      }
+      for (const iToken of itemTokens) {
+        if (iToken === qToken) {
+          score += 5; // exact token match
+        } else if (iToken.includes(qToken) || qToken.includes(iToken)) {
+          score += 1;
+        }
+      }
+    }
+
+    if (score > maxScore) {
+      maxScore = score;
+      bestItem = item;
+    }
+  }
+
+  return maxScore >= 3 ? bestItem : undefined;
+};
+
 // Resilient Offline/Local analysis engine to ensure 100% uptime for store owners
 const getLocalAssistantResponse = (userText: string, items: Item[], moves: StockMove[]): string => {
   const query = userText.toLowerCase().trim();
@@ -28,11 +88,8 @@ const getLocalAssistantResponse = (userText: string, items: Item[], moves: Stock
   const potentialProfit = totalValue - totalCost;
   const marginPercentage = totalValue > 0 ? (potentialProfit / totalValue) * 100 : 0;
 
-  // Search for mentioned product
-  const mentionedProduct = items.find(item => {
-    const nameLower = item.name.toLowerCase();
-    return query.includes(nameLower) || (item.sku && query.includes(item.sku.toLowerCase()));
-  });
+  // Search for mentioned product using smart bilingually-optimized matching
+  const mentionedProduct = findMentionedProduct(query, items);
 
   if (mentionedProduct) {
     const margin = mentionedProduct.price - (mentionedProduct.costPrice || 0);
@@ -201,7 +258,7 @@ ${list}
   }
 
   // C. Financials, Valuation, Profit Margin, Investment
-  if (query.includes("valuation") || query.includes("profit") || query.includes("margin") || query.includes("worth") || query.includes("cost") || query.includes("investment") || query.includes("capital") || query.includes("paisa") || query.includes("maliaat") || query.includes("budget") || query.includes("قيمت") || query.includes("قیمت") || query.includes("مال") || query.includes("منافع") || query.includes("کل") || query.includes("فنانشل") || query.includes("faida") || query.includes("munafa") || query.includes("invest") || query.includes("sarmaya") || query.includes("khareed") || query.includes("bech")) {
+  if (query.includes("valuation") || query.includes("profit") || query.includes("margin") || query.includes("worth") || query.includes("cost") || query.includes("investment") || query.includes("capital") || query.includes("paisa") || query.includes("maliaat") || query.includes("budget") || query.includes("hisaab") || query.includes("hisab") || query.includes("حساب") || query.includes("لیجر") || query.includes("قيمت") || query.includes("قیمت") || query.includes("مال") || query.includes("منافع") || query.includes("کل") || query.includes("فنانشل") || query.includes("faida") || query.includes("munafa") || query.includes("invest") || query.includes("sarmaya") || query.includes("khareed") || query.includes("bech")) {
     if (isUrduScript) {
       return `### 📊 اسٹور کی مالی حالت اور ویلیو ایشن
 یہاں آپ کی انوینٹری کا لائیو فنانشل ریکارڈ ہے:
@@ -523,6 +580,33 @@ Feel free to ask me anything:
 How can I serve your business today?`;
 };
 
+const isSpecificLocalQuery = (userText: string, items: Item[]): boolean => {
+  const query = userText.toLowerCase().trim();
+  const keywords = [
+    "stock", "سٹاک", "انوینٹری", "maal", "mal", "items", "products", "آئٹم", "آئٹمز", "inventory",
+    "low", "short", "reorder", "کم", "کم اسٹاک", "out of", "zero", "khali", "khatam", "khatm", "khtm", "ختم", "خالی",
+    "valuation", "profit", "margin", "worth", "cost", "investment", "capital", "paisa", "maliaat", "budget", "hisaab", "hisab", "حساب", "لیجر", "قیمت", "منافع", "کل", "فنانشل", "faida", "munafa", "invest", "sarmaya", "khareed", "bech",
+    "most", "highest stock", "max", "sab se zyada", "cheapest", "sasta", "kam qeemat", "سستا", "expensive", "mehnga", "zyada qeemat", "مہنگا",
+    "category", "categories", "کیٹیگری", "supplier", "vendor", "سپلائر",
+    "move", "history", "ledger", "tabdeeli", "expiry", "expired", "expiring", "ایکسپائری",
+    "total items", "count", "تعداد", "پروڈکٹس",
+    "grow", "improve", "business", "karobar", "بڑھانے", "طریقہ", "مشورہ"
+  ];
+  
+  // If query contains any of the target keywords
+  if (keywords.some(keyword => query.includes(keyword))) {
+    return true;
+  }
+  
+  // If query mentions any specific product name in the catalog using smart matching
+  const mentionedProduct = findMentionedProduct(query, items);
+  if (mentionedProduct) {
+    return true;
+  }
+  
+  return false;
+};
+
 interface ChatBotProps {
   items: Item[];
   moves: StockMove[];
@@ -642,23 +726,32 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
 
     try {
       const inventoryContext = getContext();
-      let data = null;
+      let data: any = null;
       let lastError: any = null;
 
-      // 1. Try central Server-Side API Call with fallback mirror URLs
+      // 1. Try central Server-Side API Call with relative and fallback mirror URLs (no local interceptors)
       const baseUrl = dbService.getBaseUrl();
-      const urls: string[] = [baseUrl];
+      const urls: string[] = ["", baseUrl];
       
-      if (baseUrl.includes("-pre-")) {
+      if (baseUrl && baseUrl.includes("-pre-")) {
         urls.push(baseUrl.replace("-pre-", "-dev-"));
-      } else if (baseUrl.includes("-dev-")) {
+      } else if (baseUrl && baseUrl.includes("-dev-")) {
         urls.push(baseUrl.replace("-dev-", "-pre-"));
       }
 
-      for (const url of urls) {
+      // Filter out duplicate or empty URLs
+      const uniqueUrls = Array.from(new Set(urls.map(u => u ? u.trim() : "")));
+
+      for (const url of uniqueUrls) {
         try {
           const endpointUrl = url ? `${url}/api/chat` : "/api/chat";
           console.log(`Sending ChatBot context API call to: ${endpointUrl}`);
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, 6000); // 6 seconds timeout to allow server-side retries under load
+          
           const response = await fetch(endpointUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -666,7 +759,10 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
               messages: [...messages, userMsg],
               inventoryContext,
             }),
+            signal: controller.signal,
           });
+
+          clearTimeout(timeoutId);
 
           let parsed: any = null;
           if (response.ok) {
@@ -693,30 +789,59 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
             throw new Error(errorText || `The server returned an error (status: ${response.status}).`);
           }
 
-          data = parsed;
-          break; // Succeeded! Exit the retry loop.
+          // If the server succeeded but returned a generic error response or safety warning, force fallback
+          if (parsed && parsed.reply && typeof parsed.reply === "string") {
+            const replyLower = parsed.reply.toLowerCase();
+            const hasAPIErrorIndicator = replyLower.includes("quota exceeded") || 
+                                        replyLower.includes("high demand") || 
+                                        replyLower.includes("rate limit") || 
+                                        replyLower.includes("unable to generate") || 
+                                        replyLower.includes("sorry, i am unable");
+            if (hasAPIErrorIndicator) {
+              console.warn("Server response contains API limitation message, triggering offline fallback...");
+              throw new Error("Generic API error response caught.");
+            }
+          }
+
+          if (parsed) {
+            data = parsed;
+            break; // Succeeded! Exit the retry loop.
+          }
         } catch (err: any) {
           console.warn(`Chat request attempt failed on URL (${url}):`, err);
           lastError = err;
-          // Silently log and continue to allow seamless fallback to the highly-optimized local engine
         }
       }
 
       // 2. Fallback to resilient, bilingually-tailored offline manager engine if all else fails
-      if (!data) {
-        console.log("Central servers unreachable or misconfigured. Running local offline engine...");
-        const localReply = getLocalAssistantResponse(textToSend, items, moves);
-        
-        data = {
-          reply: localReply
-        };
+      if (!data || !data.reply) {
+        console.log("Central servers unreachable or misconfigured. Running offline fallback engine...");
+        const isInventory = isSpecificLocalQuery(textToSend, items);
+        if (isInventory) {
+          const localReply = getLocalAssistantResponse(textToSend, items, moves);
+          data = { reply: localReply };
+        } else {
+          data = {
+            reply: "I am currently running offline or having trouble reaching the Gemini server. Please check your internet connection to ask general business questions. In offline mode, I can only help with stock level reports, asset valuations, and low-stock warnings."
+          };
+        }
+      }
+
+      // Robust string extraction to absolutely prevent rendering crashes (Objects are not valid as React children)
+      let replyText = "I apologize, I am unable to process that request right now.";
+      if (data && typeof data.reply === "string") {
+        replyText = data.reply;
+      } else if (data && typeof data.reply === "object" && data.reply !== null) {
+        replyText = data.reply.text || JSON.stringify(data.reply);
+      } else if (data && typeof data === "string") {
+        replyText = data;
       }
 
       // Add assistant response
       const assistantMsg: ChatMessage = {
         id: Math.random().toString(),
         role: "assistant",
-        text: data.reply,
+        text: replyText,
         timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
       };
 

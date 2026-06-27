@@ -164,16 +164,25 @@ Key Guidelines:
 4. Maintain a highly supportive, professional, encouraging business-companion tone. Refer to the merchant warmly as "Merchant", "Bhai", "Sir", or "Owner".
 5. For low stock warnings, reorder suggestions, purchase costs, inventory value, or margins, strictly refer to the 'Current Live Inventory' data block above. Do not make up fake stock levels.
 6. Format your answers elegantly using bold keywords and well-spaced bullet items for perfect, effortless reading on mobile screens. Keep it concise.
+7. STRICT SINGLE-LANGUAGE RULE (NO DUAL-LANGUAGE REPONSES):
+   - NEVER provide a dual-language response (e.g., do not write the Urdu translation followed by English translation or vice-versa in the same response).
+   - ONLY reply in the exact language/script of the user's last message. If the user writes in Urdu script, reply ONLY in Urdu script. If the user writes in Roman Urdu, reply ONLY in Roman Urdu. If the user writes in English, reply ONLY in English.
+8. DIRECTNESS & ZERO GENERIC RESPONSES:
+   - NEVER say "I don't have access to your inventory" or "Please provide your stock list" or give generic placeholder responses. You have full access to the context. Directly provide the live stats, figures, and calculations requested.
 `;
 
-      // Map communication messages to GoogleGenAI SDK expected format
-      let formattedContents = messages.map((m: any) => {
-        const role = m.role === "assistant" || m.role === "model" ? "model" : "user";
-        return {
-          role,
-          parts: [{ text: m.text || m.content || "" }]
-        };
-      });
+      // Map communication messages to GoogleGenAI SDK expected format safely
+      let formattedContents = (messages || [])
+        .filter((m: any) => m && typeof m === "object")
+        .map((m: any) => {
+          const role = m.role === "assistant" || m.role === "model" ? "model" : "user";
+          const rawText = m.text || m.content || "";
+          const text = typeof rawText === "string" ? rawText : JSON.stringify(rawText);
+          return {
+            role,
+            parts: [{ text }]
+          };
+        });
 
       // Strictly sanitize contents to adhere to Gemini API requirements:
       // 1. Must start with "user" role
@@ -205,8 +214,11 @@ Key Guidelines:
         });
       }
 
-      // Robust fallback retry system for models to handle 503/high demand issues gracefully
-      const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+      // Modern active models that do not require paid tier and are non-deprecated
+      const modelsToTry = [
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite"
+      ];
       let response = null;
       let lastError: any = null;
 
@@ -239,6 +251,22 @@ Key Guidelines:
       res.json({ reply });
     } catch (error: any) {
       console.error("Gemini Server Error:", error);
+      const errMsg = (error?.message || "").toUpperCase();
+      const isQuotaOrServiceUnavailable = errMsg.includes("503") || 
+                                          errMsg.includes("429") || 
+                                          errMsg.includes("RESOURCE_EXHAUSTED") || 
+                                          errMsg.includes("SERVICE_UNAVAILABLE") ||
+                                          errMsg.includes("UNAVAILABLE") ||
+                                          errMsg.includes("QUOTA") ||
+                                          errMsg.includes("LIMIT") ||
+                                          errMsg.includes("FAILED TO RESPOND");
+      
+      if (isQuotaOrServiceUnavailable) {
+        return res.json({ 
+          reply: "Invexa Assistant is experiencing heavy traffic. Local offline-first management is fully functional!", 
+          status: "fallback" 
+        });
+      }
       res.status(500).json({ error: error.message || "An internal error occurred on the server." });
     }
   });
