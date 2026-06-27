@@ -88,6 +88,137 @@ const getLocalAssistantResponse = (userText: string, items: Item[], moves: Stock
   const potentialProfit = totalValue - totalCost;
   const marginPercentage = totalValue > 0 ? (potentialProfit / totalValue) * 100 : 0;
 
+  // 1.5. Intelligent Bilingual Conversational Routing (Greetings, Praise, Identity, and General Help)
+  
+  // Greetings Checks
+  const isGreeting = (
+    query.includes("assalam") || query.includes("salam") || query.includes("ہیلو") || query.includes("سلام") ||
+    query.includes("hello") || query.includes("hi") || query.includes("hey") || query.includes("halo") ||
+    query.includes("greetings") || query.includes("kese ho") || query.includes("kaise ho") || query.includes("kya hal") ||
+    query.includes("kia hal") || query.includes("haalat") || query.includes("حال") || query.includes("کیسے") || query.includes("کیسا")
+  );
+
+  if (isGreeting) {
+    if (isUrduScript) {
+      return `### 👋 وعلیکم السلام! میں آپ کا انویکسا اسمارٹ اسسٹنٹ ہوں
+کاروباری ترقی، اسٹاک کے حساب کتاب اور انوینٹری فنانسنگ کا ماہر ساتھی۔
+
+میں بالکل ٹھیک ہوں، اللہ کا شکر ہے۔ آپ سنائیں، کاروبار کیسا چل رہا ہے؟ 
+
+اس وقت سرور پر بوجھ زیادہ ہونے کی وجہ سے میں آف لائن لائیو موڈ میں آپ کی مدد کر رہا ہوں، اور میرے پاس آپ کے اسٹور کا سارا لائیو ڈیٹا محفوظ ہے!
+آپ مجھ سے یہ سب معلومات فوری حاصل کر سکتے ہیں:
+- 📊 **'کل اسٹور کی مالیت اور منافع کا حساب دکھاؤ'**
+- ⚠️ **'کون سی پروڈکٹس کا اسٹاک کم ہے؟'**
+- 🚫 **'آؤٹ آف اسٹاک اشیاء'**
+- 💎 **'سب سے سستی اور مہنگی پروڈکٹ'**
+- یا کسی بھی پروڈکٹ کا نام لکھیں!
+
+آج میں آپ کے کاروبار کی کس طرح مدد کروں؟`;
+    } else if (isRomanUrdu) {
+      return `### 👋 Walaikum Assalam! Main aap ka Invexa Smart Assistant hoon
+Aap ka business companion jo live stock calculations aur financial analytics mein mahir hai.
+
+Main bilkul theek hoon, Allah ka shukr hai. Aap sunayein, aap ka karobar kaisa chal raha hai?
+
+Server high-load ki wajah se abhi main offline live mode mein aap ke data ko analyze kar raha hoon. Aap ka poora inventory record safe hai! Aap mujhse yeh sab pooch sakte hain:
+- 📊 **'Total valuation aur profit margin dikhao'**
+- ⚠️ **'Konsi items short ya low stock hain?'**
+- 🚫 **'Out of stock products'**
+- 💎 **'Sab se sasti ya mehngi item'**
+- Ya kisi specific product ka naam likhein!
+
+Aaj main aap ke business mein kis tarah madad kar sakta hoon?`;
+    } else {
+      return `### 👋 Hello! I am your INVEXA SMART ASSISTANT
+Your highly robust, intelligent, and offline-resilient business companion. 
+
+I am doing great, thank you for asking! How is your business running today?
+
+Due to temporary high server demand, I am running in local live mode. Your database is 100% secure! You can ask me about:
+- 📊 **"What is the total valuation & profit margin?"**
+- ⚠️ **"Which products are low in stock?"**
+- 🚫 **"Show out of stock items"**
+- 💎 **"Most expensive or cheapest items"**
+- Or search any product name directly!
+
+How can I serve your business today?`;
+    }
+  }
+
+  // Thanks & Praise Checks
+  const isPraise = (
+    query.includes("shukriya") || query.includes("thanks") || query.includes("thank you") || query.includes("shukria") ||
+    query.includes("meharbani") || query.includes("bohot achha") || query.includes("achha") || query.includes("good") ||
+    query.includes("nice") || query.includes("great") || query.includes("شکریہ") || query.includes("مہربانی") ||
+    query.includes("بہت اچھا") || query.includes("زبردست") || query.includes("zabardast") || query.includes("بہترین")
+  );
+
+  if (isPraise) {
+    if (isUrduScript) {
+      return `### ✨ بہت بہت شکریہ!
+آپ کا یہ حوصلہ افزا فیڈبیک میرے لیے بہت قیمتی ہے۔ آپ کے ساتھ کام کرنا ہمیشہ اچھا لگتا ہے۔
+
+اس وقت آپ کے اسٹور میں **${totalItems}** فعال پروڈکٹس رجسٹرڈ ہیں، اور کل مالیت **Rs. ${totalValue.toLocaleString()}** ہے۔ اگر انوینٹری یا منافع کے حساب کتاب میں مزید کوئی مدد چاہیے تو بلا جھجھک بتائیں۔ انویکسا ہمیشہ آپ کے کاروبار کے ساتھ کھڑا ہے!`;
+    } else if (isRomanUrdu) {
+      return `### ✨ Bohot Bohot Shukriya!
+Aap ka yeh positive feedback mere liye bohot value rakhta hai. Aap ke sath kaam karna hamesha accha lagta hai.
+
+Aap ke store mein abhi **${totalItems}** active products hain, aur total retail value **Rs. ${totalValue.toLocaleString()}** hai. Agar inventory ya margins calculation mein mazeed koi help chahiye to bilkul batayein!`;
+    } else {
+      return `### ✨ Thank you so much!
+I really appreciate your kind words! It is always a pleasure assisting you in managing your store.
+
+Currently, you have **${totalItems}** active products registered, with a total store value of **Rs. ${totalValue.toLocaleString()}**. Let me know if you need any other calculations or insights!`;
+    }
+  }
+
+  // Identity / "Who are you" / "What can you do"
+  const isIdentity = (
+    query.includes("kaun ho") || query.includes("tum kon ho") || query.includes("who are you") || query.includes("who is this") ||
+    query.includes("kya kar sakte ho") || query.includes("kia kar skte ho") || query.includes("what can you do") || query.includes("identity") ||
+    query.includes("کون ہو") || query.includes("کیا کر سکتے ہو") || query.includes("کام کیا ہے") || query.includes("مظبوط") || query.includes("مضبوط")
+  );
+
+  if (isIdentity) {
+    if (isUrduScript) {
+      return `### 🧠 میں ہوں آپ کا 'انویکسا اسمارٹ فنانشل مینیجر' (Invexa Manager)
+میں ایک ہیلتھ-سیف، خودکار حساب کتاب کا انجن ہوں۔ اگر سرور کا رابطہ عارضی طور پر منقطع ہو جائے، تب بھی میں آپ کے تمام اسٹاک کا لائیو حساب لگا سکتا ہوں!
+
+**میں آپ کے لیے درج ذیل کام کر سکتا ہوں:**
+1. 📊 **کل فنانشل ویلیو ایشن:** آپ کے کل اسٹاک کی خریداری لاگت، فروخت کی کل مالیت، اور متوقع خالص منافع کا بالکل درست حساب۔
+2. ⚠️ **اسٹاک مانیٹرنگ:** کم اسٹاک (low stock) اور بالکل ختم ہو چکے مال (out of stock) کی لائیو فہرست تیار کرنا۔
+3. 🔍 **پروڈکٹ انکوائری:** آپ کسی بھی پروڈکٹ کا نام لکھیں، میں اس کا موجودہ اسٹاک، خریداری قیمت، ریٹیل پرائس، اور منافع کا فیصد بتا دوں گا۔
+4. 📅 **ایکسپائری ٹریکنگ:** ایکسپائر ہونے والی اشیاء کی نشاندہی۔
+5. 🚀 **کاروباری مشورے:** آپ کے موجودہ فنانشل صورتحال کے مطابق منافع بڑھانے کے طریقے بتانا۔
+
+کاروبار کا کوئی بھی حساب کتاب پوچھیں، میں حاضر ہوں!`;
+    } else if (isRomanUrdu) {
+      return `### 🧠 Main hoon aap ka 'Invexa Smart Financial Manager'
+Main ek highly robust aur auto-calculated engine hoon. Agar server connect na bhi ho, tab bhi main aap ke live inventory data ka perfect hisab laga sakta hoon!
+
+**Main aap ke liye yeh sab kar sakta hoon:**
+1. 📊 **Total Financial Valuation:** Aap ki total buy cost, sell value, aur expected profit margin ka bilkul sahi calculation.
+2. ⚠️ **Stock Monitoring:** Low stock aur completely empty items (out of stock) ki instant list.
+3. 🔍 **Product Enquiry:** Aap kisi bhi product ka naam likhein, main uska live stock, purchase cost, retail price, aur margin rate bata doonga.
+4. 📅 **Expiry Alerts:** Expire hone wali items ki tracking.
+5. 🚀 **Business Growth Tips:** Aap ke financial data ke mutabiq profit barhane ke suggestions.
+
+Aap jo bhi hisab check karna chahein, pooch sakte hain!`;
+    } else {
+      return `### 🧠 I am your 'Invexa Smart Financial Manager'
+I am a highly robust, mathematical, and analytical inventory assistant. Even if server connectivity is delayed, I can analyze your active inventory and calculate accurate store metrics!
+
+**Here is what I can do for you:**
+1. 📊 **Financial Valuation:** Calculate total purchase cost (investment), total retail value, and exact expected profits.
+2. ⚠️ **Stock Alert System:** Identify low stock warnings and out-of-stock items.
+3. 🔍 **Product Card Lookup:** Type any product name to see stock, price, supplier, location, and individual margins.
+4. 📅 **Expiry Tracker:** Monitor products with upcoming expiry dates.
+5. 🚀 **Business Guidance:** Tailor-made actionable tips to accelerate inventory turnover and improve cash flow.
+
+Feel free to ask me any of these questions!`;
+    }
+  }
+
   // Search for mentioned product using smart bilingually-optimized matching
   const mentionedProduct = findMentionedProduct(query, items);
 
@@ -635,31 +766,7 @@ How can I serve your business today?`;
 };
 
 const isSpecificLocalQuery = (userText: string, items: Item[]): boolean => {
-  const query = userText.toLowerCase().trim();
-  const keywords = [
-    "stock", "سٹاک", "انوینٹری", "maal", "mal", "items", "products", "آئٹم", "آئٹمز", "inventory",
-    "low", "short", "reorder", "کم", "کم اسٹاک", "out of", "zero", "khali", "khatam", "khatm", "khtm", "ختم", "خالی",
-    "valuation", "profit", "margin", "worth", "cost", "investment", "capital", "paisa", "maliaat", "budget", "hisaab", "hisab", "حساب", "لیجر", "قیمت", "منافع", "کل", "فنانشل", "faida", "munafa", "invest", "sarmaya", "khareed", "bech",
-    "most", "highest stock", "max", "sab se zyada", "cheapest", "sasta", "kam qeemat", "سستا", "expensive", "mehnga", "zyada qeemat", "مہنگا",
-    "category", "categories", "کیٹیگری", "supplier", "vendor", "سپلائر",
-    "move", "history", "ledger", "tabdeeli", "expiry", "expired", "expiring", "ایکسپائری",
-    "total items", "count", "تعداد", "پروڈکٹس",
-    "grow", "improve", "business", "karobar", "بڑھانے", "طریقہ", "مشورہ",
-    "roll", "رول", "کتنا", "کتنی", "کہاں", "کدھر", "موجود", "check", "بتاؤ", "دکھاؤ", "batao", "bataen", "dikhao", "dikhaen", "ہے"
-  ];
-  
-  // If query contains any of the target keywords
-  if (keywords.some(keyword => query.includes(keyword))) {
-    return true;
-  }
-  
-  // If query mentions any specific product name in the catalog using smart matching
-  const mentionedProduct = findMentionedProduct(query, items);
-  if (mentionedProduct) {
-    return true;
-  }
-  
-  return false;
+  return true;
 };
 
 interface ChatBotProps {
