@@ -124,19 +124,57 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
     try {
       const inventoryContext = getContext();
       
+      // Resilient Dual-Environment Endpoint Lookup & Fallback System
       const baseUrl = dbService.getBaseUrl();
-      const response = await fetch(`${baseUrl}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMsg],
-          inventoryContext,
-        }),
-      });
+      const urls: string[] = [baseUrl];
+      
+      if (baseUrl.includes("-pre-")) {
+        urls.push(baseUrl.replace("-pre-", "-dev-"));
+      } else if (baseUrl.includes("-dev-")) {
+        urls.push(baseUrl.replace("-dev-", "-pre-"));
+      }
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "The server failed to respond.");
+      let data = null;
+      let lastError: any = null;
+
+      for (const url of urls) {
+        try {
+          const endpointUrl = url ? `${url}/api/chat` : "/api/chat";
+          console.log(`Sending ChatBot context API call to: ${endpointUrl}`);
+          const response = await fetch(endpointUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: [...messages, userMsg],
+              inventoryContext,
+            }),
+          });
+
+          const parsed = await response.json();
+          if (!response.ok) {
+            throw new Error(parsed.error || "The server failed to respond.");
+          }
+          data = parsed;
+          break; // Succeeded! Exit the retry loop.
+        } catch (err: any) {
+          console.warn(`Chat request attempt failed on URL (${url}):`, err);
+          lastError = err;
+          
+          // Fast fail if it's a structural server config error (e.g., API key missing) rather than a network disconnect/timeout
+          const errorMsg = err.message || "";
+          const isNetworkError = errorMsg.includes("Failed to fetch") || 
+                                 errorMsg.includes("NetworkError") || 
+                                 errorMsg.includes("Load failed") ||
+                                 errorMsg.includes("unreachable");
+                                 
+          if (!isNetworkError && errorMsg !== "The server failed to respond.") {
+            throw err; // Propagate critical issues (like missing API Key) directly to the user
+          }
+        }
+      }
+
+      if (!data) {
+        throw lastError || new Error("Failed to reach the assistant server. Please check your network or try again.");
       }
 
       // Add assistant response
