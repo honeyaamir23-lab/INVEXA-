@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Item, StockMove, ChatMessage } from "../types";
 import { Send, Sparkles, X, Bot, User, RefreshCw, AlertCircle, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { dbService } from "../db";
 
 interface ChatBotProps {
   items: Item[];
@@ -123,7 +124,8 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
     try {
       const inventoryContext = getContext();
       
-      const response = await fetch("/api/chat", {
+      const baseUrl = dbService.getBaseUrl();
+      const response = await fetch(`${baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

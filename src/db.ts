@@ -529,7 +529,7 @@ class DatabaseService {
     }
   }
 
-  private getBaseUrl(): string {
+  public getBaseUrl(): string {
     const origin = window.location.origin;
     if (origin.includes("localhost") || origin.includes(".run.app") || origin.includes("3000")) {
       return "";
