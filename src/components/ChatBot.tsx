@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Item, StockMove, ChatMessage } from "../types";
-import { Send, Sparkles, X, Bot, User, RefreshCw, AlertCircle, MessageCircle } from "lucide-react";
+import { Send, Sparkles, X, Bot, User, RefreshCw, AlertCircle, MessageCircle, Settings, Globe, Key, ArrowLeft } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { dbService } from "../db";
 
@@ -777,6 +777,10 @@ interface ChatBotProps {
 
 export default function ChatBot({ items, moves, isOnline }: ChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [clientApiKey, setClientApiKey] = useState(() => localStorage.getItem("user_gemini_api_key") || "");
+  const [customBackendUrl, setCustomBackendUrl] = useState(() => localStorage.getItem("user_custom_backend_url") || "");
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "initial-msg",
@@ -891,20 +895,139 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
       let data: any = null;
       let lastError: any = null;
 
-      // 1. Try central Server-Side API Call with relative and fallback mirror URLs (no local interceptors)
-      const baseUrl = dbService.getBaseUrl();
-      const urls: string[] = ["", baseUrl];
-      
-      if (baseUrl && baseUrl.includes("-pre-")) {
-        urls.push(baseUrl.replace("-pre-", "-dev-"));
-      } else if (baseUrl && baseUrl.includes("-dev-")) {
-        urls.push(baseUrl.replace("-dev-", "-pre-"));
+      // 0. Try direct Client-Side Gemini call if user provided a client API Key
+      if (clientApiKey && clientApiKey.trim()) {
+        try {
+          console.log("[ChatBot Client] Initiating direct Gemini API call...");
+          const systemInstruction = `
+You are the head financial accountant of WALEED FOODS. If an item like 'رول' is not in the active database array, you must say directly: 'ہمارے پاس انوینٹری میں رول کا اسٹاک موجود نہیں ہے'۔ Do not substitute data. If prices are 0, remind the user to add cost/selling prices in the Inventory page to view margins.
+
+You are the ultimate "INVEXA Financial Expert & Inventory Manager", a highly robust, mathematically precise, and flawless store/factory manager companion built for INVEXA SMART MANAGER.
+Your primary goal is to act as an advanced financial, accountant, and mathematical expert for factory inventory, ensuring absolutely zero errors when calculating stock totals, ledger balances, margins, and complex calculations based strictly on the available live inventory data.
+
+You must retain a strong, flawless memory of the entire conversation history. Refer to previous messages to maintain continuity and context.
+
+The live inventory database context is:
+${inventoryContext || "No items are currently listed in the store inventory."}
+
+Strict Core Guidelines:
+1. STRICT INVENTORY LOOKUP:
+   - You must accurately analyze the real-time inventory JSON array.
+   - If a user asks about an item that does NOT exist in the database (for example, "رول" or "roll" or any other unregistered product name), you must NEVER substitute it with another item (such as "Maida 40kg" or any other item).
+   - You must directly, clearly, and professionally reply in Urdu (or the user's language/script) that the item is currently unavailable or not registered in the system.
+
+2. MATH & BUSINESS INTELLIGENCE:
+   - You are fully enabled to calculate profit margins, stock valuation trends, and provide smart business insights based strictly on the available app data.
+   - Double check all calculations: Total Valuation, Profit Margins, Stock count, and Purchase cost.
+
+3. MULTILINGUAL INTELLIGENCE (URDU, ROMAN URDU & ENGLISH):
+   - You understand English, Urdu script (اردو), and Roman Urdu perfectly.
+   - ALWAYS reply in the exact language/script the user is communicating in! If they chat in Urdu script, respond in warm, professional, grammatically correct Urdu. If they chat in Roman Urdu (e.g., "stock check karo", "reorder list dikhao"), respond in fluent Roman Urdu. If they chat in English, respond in English.
+   - For Urdu/Roman Urdu responses, make sure technical inventory terms (like stock, items, profit, cost, SKU, category) are clear and well-integrated.
+
+4. STRICT COMPLIANCE TO USER LENGTH & FORMAT (Extremely Critical for Speed):
+   - If the user asks for "short", "shortcut", "brief", respond with DIRECT key data or numbers ONLY. Absolutely skip any opening greeting, introductory filler, or closing friendly text. Give pure facts immediately to ensure ultra-fast load times.
+   - If the user asks for "detailed" or "full details", provide a comprehensive analysis of margins, costs, and advice.
+   - If the user asks for "numbered" or "number wise", format the output strictly using ordered lists (1, 2, 3...) without verbose explanation paragraphs.
+
+5. Maintain a highly supportive, professional, encouraging business-companion tone. Refer to the merchant warmly as "Merchant", "Bhai", "Sir", or "Owner".
+6. Format your answers elegantly using bold keywords and well-spaced bullet items for perfect, effortless reading on mobile screens. Keep it concise.
+7. STRICT SINGLE-LANGUAGE RULE (NO DUAL-LANGUAGE REPONSES):
+   - NEVER provide a dual-language response (e.g., do not write the Urdu translation followed by English translation or vice-versa in the same response).
+   - ONLY reply in the exact language/script of the user's last message.
+`;
+
+          let formattedContents = [...messages, userMsg]
+            .filter((m: any) => m && typeof m === "object")
+            .map((m: any) => {
+              const role = m.role === "assistant" || m.role === "model" ? "model" : "user";
+              const rawText = m.text || m.content || "";
+              const text = typeof rawText === "string" ? rawText : JSON.stringify(rawText);
+              return {
+                role,
+                parts: [{ text }]
+              };
+            });
+
+          // Sanitize contents (must start with user, alternate roles)
+          while (formattedContents.length > 0 && formattedContents[0].role !== "user") {
+            formattedContents.shift();
+          }
+
+          const sanitizedContents: any[] = [];
+          for (const turn of formattedContents) {
+            if (sanitizedContents.length === 0) {
+              sanitizedContents.push(turn);
+            } else {
+              const lastTurn = sanitizedContents[sanitizedContents.length - 1];
+              if (lastTurn.role === turn.role) {
+                lastTurn.parts[0].text += "\n" + turn.parts[0].text;
+              } else {
+                sanitizedContents.push(turn);
+              }
+            }
+          }
+          formattedContents = sanitizedContents;
+
+          if (formattedContents.length === 0) {
+            formattedContents.push({
+              role: "user",
+              parts: [{ text: "Hello INVEXA Assistant, please greet me." }]
+            });
+          }
+
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${clientApiKey.trim()}`;
+          const response = await fetch(geminiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: formattedContents,
+              systemInstruction: {
+                parts: [{ text: systemInstruction }]
+              },
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 1024,
+              }
+            })
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            if (
+              result.candidates &&
+              result.candidates[0] &&
+              result.candidates[0].content &&
+              result.candidates[0].content.parts &&
+              result.candidates[0].content.parts[0]
+            ) {
+              data = { reply: result.candidates[0].content.parts[0].text };
+            }
+          } else {
+            const errText = await response.text();
+            console.error("[ChatBot Client] Gemini Direct API error:", errText);
+            throw new Error(`Direct API failed: ${errText || response.statusText}`);
+          }
+        } catch (clientErr) {
+          console.error("[ChatBot Client] Failed direct client-side call, falling back to server...", clientErr);
+        }
       }
 
-      // Filter out duplicate or empty URLs
-      const uniqueUrls = Array.from(new Set(urls.map(u => u ? u.trim() : "")));
+      // 1. Try central Server-Side API Call with relative and fallback mirror URLs (no local interceptors)
+      if (!data) {
+        const baseUrl = dbService.getBaseUrl();
+        const urls: string[] = ["", baseUrl];
+        
+        if (baseUrl && baseUrl.includes("-pre-")) {
+          urls.push(baseUrl.replace("-pre-", "-dev-"));
+        } else if (baseUrl && baseUrl.includes("-dev-")) {
+          urls.push(baseUrl.replace("-dev-", "-pre-"));
+        }
 
-      for (const url of uniqueUrls) {
+        // Filter out duplicate or empty URLs
+        const uniqueUrls = Array.from(new Set(urls.map(u => u ? u.trim() : "")));
+
+        for (const url of uniqueUrls) {
         try {
           const endpointUrl = url ? `${url}/api/chat` : "/api/chat";
           
@@ -1000,29 +1123,39 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
           lastError = err;
         }
       }
+      }
 
       // 2. Fallback to resilient, bilingually-tailored offline manager engine if all else fails
       if (!data || !data.reply) {
         console.log("Central servers unreachable or misconfigured. Running offline fallback engine...");
         const isInventory = isSpecificLocalQuery(textToSend, items);
+        
+        const isUrduScript = /[\u0600-\u06FF]/.test(textToSend);
+        const wordsList = textToSend.toLowerCase().trim().split(/[^a-zA-Z]+/);
+        const romanUrduDict = new Set([
+          "bhai", "hai", "he", "kya", "kia", "karo", "dikhao", "kam", "zyada", "faida", "nuqsan", "kaise", "ko", "shuru", "btao", "batao", "khatam", "sasta", "mehnga", "mujhe", "bataen", "dikhaen", "hisaab", "hisab", "fayda", "nuksan", "gaya", "chal", "raha", "rahi", "haan", "na", "nahi", "nahin", "chahiye", "chahye", "ke", "ki", "se", "main", "mein", "shukriya", "shukria", "aur", "bhi", "ka", "ko", "ne", "tha", "thi", "the", "kar", "rha", "rhi", "rhey", "rahey"
+        ]);
+        const isRomanUrdu = wordsList.some(w => romanUrduDict.has(w));
+
         if (isInventory) {
-          const localReply = getLocalAssistantResponse(textToSend, items, moves);
+          let localReply = getLocalAssistantResponse(textToSend, items, moves);
+          
+          if (isUrduScript) {
+            localReply += "\n\n---\n\n💡 **نیٹ لیفائی (Netlify) گائیڈ:** لائیو لنک پر مکمل 100٪ رئیل ٹائم سمارٹ AI چلانے کے لیے اوپر موجود گیئر (⚙️) سیٹنگز بٹن پر کلک کریں اور اپنا مفت **Gemini API Key** شامل کریں!";
+          } else if (isRomanUrdu) {
+            localReply += "\n\n---\n\n💡 **Netlify Guide:** Live link par complete 100% real-time Smart AI chalane ke liye upar diye gaye gear (⚙️) Settings button pe click karein aur apna free **Gemini API Key** paste karein!";
+          } else {
+            localReply += "\n\n---\n\n💡 **Netlify / Live Link Guide:** To enable 100% active, highly intelligent real-time AI on static live hosting, please click the gear (⚙️) Settings button at the top to paste your free **Gemini API Key**!";
+          }
           data = { reply: localReply };
         } else {
-          const isUrduScript = /[\u0600-\u06FF]/.test(textToSend);
-          const wordsList = textToSend.toLowerCase().trim().split(/[^a-zA-Z]+/);
-          const romanUrduDict = new Set([
-            "bhai", "hai", "he", "kya", "kia", "karo", "dikhao", "kam", "zyada", "faida", "nuqsan", "kaise", "ko", "shuru", "btao", "batao", "khatam", "sasta", "mehnga", "mujhe", "bataen", "dikhaen", "hisaab", "hisab", "fayda", "nuksan", "gaya", "chal", "raha", "rahi", "haan", "na", "nahi", "nahin", "chahiye", "chahye", "ke", "ki", "se", "main", "mein", "shukriya", "shukria", "aur", "bhi", "ka", "ko", "ne", "tha", "thi", "the", "kar", "rha", "rhi", "rhey", "rahey"
-          ]);
-          const isRomanUrdu = wordsList.some(w => romanUrduDict.has(w));
-
           let offlineReply = "";
           if (isUrduScript) {
-            offlineReply = "میں اس وقت آف لائن موڈ میں کام کر رہا ہوں اور سرور سے کنکشن میں عارضی تاخیر ہے۔ لیکن آپ کا کاروباری ڈیٹا بالکل محفوظ ہے! آف لائن موڈ میں، میں آپ کو اسٹاک کی تفصیلات، مالیت (valuation)، منافع کے حساب کتاب، اور کم اسٹاک (low stock) کی رپورٹس فوری فراہم کر سکتا ہوں۔ آپ انوینٹری کے متعلق کوئی بھی سوال پوچھ سکتے ہیں!";
+            offlineReply = "میں اس وقت آف لائن موڈ میں کام کر رہا ہوں اور سرور سے کنکشن میں عارضی تاخیر ہے۔ لیکن آپ کا کاروباری ڈیٹا بالکل محفوظ ہے! آف لائن موڈ میں، میں آپ کو اسٹاک کی تفصیلات، مالیت (valuation)، منافع کے حساب کتاب، اور کم اسٹاک (low stock) کی رپورٹس فوری فراہم کر سکتا ہوں۔\n\n💡 **نیٹ لیفائی (Netlify) گائیڈ:** اوپر موجود گیئر (⚙️) بٹن پر کلک کر کے اپنا مفت **Gemini API Key** شامل کریں تاکہ آپ کا چیٹ بوٹ لائیو ہو جائے!";
           } else if (isRomanUrdu) {
-            offlineReply = "Main is waqt offline mode mein kaam kar raha hoon aur server se temporary connection delay hai. Lekin aap ka business data bilkul safe hai! Offline mode mein, main aap ko stock details, store valuation, profit/margins calculations, aur low-stock warning reports instant de sakta hoon. Aap inventory ke mutalik koi bhi sawal pooch sakte hain!";
+            offlineReply = "Main is waqt offline mode mein kaam kar raha hoon aur server se temporary connection delay hai. Lekin aap ka business data bilkul safe hai! Offline mode mein, main aap ko stock details, store valuation, profit/margins calculations, aur low-stock warning reports instant de sakta hoon.\n\n💡 **Netlify Guide:** Upar diye gaye gear (⚙️) button pe click karein aur apna free **Gemini API Key** paste karein taake chatbot live ho jaye!";
           } else {
-            offlineReply = "I am currently operating in offline mode as the server is temporarily unreachable. Your business data is 100% safe! In offline mode, I can still assist you with instant stock reports, store valuations, profit margins, and low-stock reorder warnings. Feel free to ask about your inventory!";
+            offlineReply = "I am currently operating in offline mode as the server is temporarily unreachable. Your business data is 100% safe! In offline mode, I can still assist you with instant stock reports, store valuations, profit margins, and low-stock reorder warnings.\n\n💡 **Netlify / Live Link Guide:** Click the gear (⚙️) Settings button at the top to paste your free **Gemini API Key** to make this chatbot fully live!";
           }
           data = { reply: offlineReply };
         }
@@ -1128,141 +1261,263 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
           >
             {/* Header resembles premium assistant look */}
             <div className="p-3 bg-slate-900 text-white flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="h-7 w-7 bg-[#25D366] text-white rounded-full flex items-center justify-center text-[10px] shrink-0 font-bold">
-                  AI
+              {isSettingsOpen ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="p-1 text-slate-300 hover:text-white rounded-md cursor-pointer duration-150"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                  <div>
+                    <h3 className="font-extrabold text-[11px] md:text-xs text-left">ChatBot Settings</h3>
+                    <p className="text-[7px] text-[#25D366] font-semibold text-left">کلاؤڈ اور لائیو سیٹنگز</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-extrabold text-[11px] md:text-xs text-left">INVEXA ASSISTANT</h3>
-                  <p className="text-[8px] text-[#25D366] font-semibold flex items-center gap-1 text-left">
-                    <span className="h-1 w-1 bg-[#25D366] rounded-full animate-ping shrink-0" />
-                    <span>Gemini Live Support</span>
-                  </p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 bg-[#25D366] text-white rounded-full flex items-center justify-center text-[10px] shrink-0 font-bold">
+                    AI
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-[11px] md:text-xs text-left">INVEXA ASSISTANT</h3>
+                    <p className="text-[8px] text-[#25D366] font-semibold flex items-center gap-1 text-left">
+                      <span className="h-1 w-1 bg-[#25D366] rounded-full animate-ping shrink-0" />
+                      <span>Gemini Live Support</span>
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5">
+              )}
+              <div className="flex items-center gap-1">
+                {!isSettingsOpen && (
+                  <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md cursor-pointer duration-150"
+                    title="Settings"
+                  >
+                    <Settings size={15} />
+                  </button>
+                )}
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-md cursor-pointer duration-150"
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md cursor-pointer duration-150"
                 >
                   <X size={16} />
                 </button>
               </div>
             </div>
 
-            {/* Chat Messages */}
-            <div
-              ref={scrollRef}
-              className="flex-grow p-3 overflow-y-auto space-y-2.5 bg-slate-50 text-slate-800"
-            >
-              {(messages as any[]).map((m: any) => {
-                const isAssistant = m.role === "assistant" || m.role === "model";
-                const messageText = m.text || m.reply || "";
-                return (
-                  <div
-                    key={m.id || Math.random().toString()}
-                    className={`flex gap-2 max-w-[88%] ${
-                      isAssistant ? "mr-auto text-left" : "ml-auto flex-row-reverse text-right"
-                    }`}
-                  >
-                    {/* Avatars */}
-                    <div
-                      className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 shadow-xs border ${
-                        isAssistant ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-neutral-800 text-neutral-100 border-neutral-700"
-                      }`}
+            {isSettingsOpen ? (
+              <div className="flex-grow p-3.5 bg-slate-50 overflow-y-auto space-y-3.5 text-xs text-slate-700">
+                {/* Section 1: Gemini API Key */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs space-y-2">
+                  <div className="flex items-center gap-1.5 text-slate-900 font-bold text-[11px]">
+                    <Key size={13} className="text-emerald-500 shrink-0" />
+                    <span>Gemini API Key (مفت لائیو سیٹنگز)</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-normal">
+                    Enter your Gemini API key to enable full, real-time AI capabilities on Netlify or any static deployment instantly! Saved safely in your local browser cache.
+                  </p>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      placeholder="AIzaSy..."
+                      value={clientApiKey}
+                      onChange={(e) => setClientApiKey(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div className="flex justify-between items-center text-[8px]">
+                    <a
+                      href="https://aistudio.google.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#128C7E] hover:underline font-bold"
                     >
-                      {isAssistant ? <Bot size={11} /> : <User size={11} />}
-                    </div>
-
-                    {/* Chat Bubble */}
-                    <div className="space-y-0.5">
-                      <div
-                        className={`p-2.5 rounded-2xl text-[11px] leading-relaxed font-medium ${
-                          isAssistant
-                            ? "bg-white text-slate-800 rounded-tl-none border border-slate-200/50 shadow-2xs"
-                            : "bg-[#25D366] text-white rounded-tr-none text-left shadow-2xs"
-                        }`}
-                        style={{ whiteSpace: "pre-wrap" }}
+                      🔑 Get Free API Key (مفت حاصل کریں) →
+                    </a>
+                    {clientApiKey && (
+                      <button
+                        onClick={() => {
+                          setClientApiKey("");
+                          localStorage.removeItem("user_gemini_api_key");
+                        }}
+                        className="text-rose-500 hover:underline"
                       >
-                        {messageText}
-                      </div>
-                      <span className="text-[7px] text-slate-400 block px-1 mt-0.5">
-                        {m.timestamp}
-                      </span>
+                        Clear Key
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Section 2: Custom Cloud Server Sync */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs space-y-2">
+                  <div className="flex items-center gap-1.5 text-slate-900 font-bold text-[11px]">
+                    <Globe size={13} className="text-blue-500 shrink-0" />
+                    <span>Custom Backend URL (کلاؤڈ سرور سنک)</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-normal">
+                    Connect your deployed custom Cloud Run or backend node server to keep your inventory synced across devices permanently.
+                  </p>
+                  <input
+                    type="url"
+                    placeholder="https://your-cloud-run-service.run.app"
+                    value={customBackendUrl}
+                    onChange={(e) => setCustomBackendUrl(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  {customBackendUrl && (
+                    <div className="flex justify-end text-[8px]">
+                      <button
+                        onClick={() => {
+                          setCustomBackendUrl("");
+                          localStorage.removeItem("user_custom_backend_url");
+                        }}
+                        className="text-rose-500 hover:underline"
+                      >
+                        Reset Default URL
+                      </button>
                     </div>
-                  </div>
-                );
-              })}
-
-              {/* Loader */}
-              {loading && (
-                <div className="flex gap-2 max-w-[80%] mr-auto text-left">
-                  <div className="h-6 w-6 bg-emerald-50 text-emerald-700 rounded-full flex items-center justify-center animate-spin border border-emerald-100">
-                    <RefreshCw size={10} />
-                  </div>
-                  <div className="p-2.5 bg-white text-slate-400 rounded-2xl rounded-tl-none border border-slate-100 text-[11px] shadow-3xs italic">
-                    Analyzing store metrics...
-                  </div>
+                  )}
                 </div>
-              )}
 
-              {/* Error Alert */}
-              {error && (
-                <div className="p-2.5 bg-rose-50 text-rose-800 rounded-2xl border border-rose-100 text-[11px] flex gap-2 items-start shadow-inner">
-                  <AlertCircle size={12} className="text-rose-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold">Error:</span> {error}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Suggestions Drawer Pills */}
-            {messages.length < 4 && !loading && (
-              <div className="px-2.5 py-1.5 bg-slate-50 overflow-x-auto whitespace-nowrap flex gap-1.5 border-t border-slate-100 shrink-0 scrollbar-none">
-                {suggestions.map((s, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleSendMessage(s)}
-                    className="inline-block py-1 px-2.5 bg-white hover:bg-emerald-50 text-[#128C7E] border border-slate-200 hover:border-[#25D366] rounded-full text-[9px] font-bold duration-150 cursor-pointer shadow-3xs shrink-0"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Footer Input Bar */}
-            {!isOnline ? (
-              <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-1.5 shrink-0 text-slate-500 font-bold text-[10px]">
-                <AlertCircle size={12} className="text-amber-500 shrink-0" />
-                <span>🔌 AI Chatbot is offline. Reconnect to resume.</span>
-              </div>
-            ) : (
-              <div className="p-2 border-t border-slate-100 bg-white flex items-end gap-2 shrink-0">
-                <textarea
-                  ref={textareaRef}
-                  rows={1}
-                  placeholder="Ask about inventory, value..."
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  disabled={loading}
-                  className="flex-grow px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#25D366] rounded-xl text-[11px] duration-150 text-slate-900 resize-none max-h-[120px] overflow-y-auto scrollbar-none"
-                />
+                {/* Save Button */}
                 <button
-                  onClick={() => handleSendMessage()}
-                  disabled={loading || !input.trim()}
-                  className="h-8 w-8 bg-[#25D366] hover:bg-[#20ba5a] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition duration-150 shrink-0 cursor-pointer shadow-md self-end"
+                  onClick={() => {
+                    if (clientApiKey.trim()) {
+                      localStorage.setItem("user_gemini_api_key", clientApiKey.trim());
+                    } else {
+                      localStorage.removeItem("user_gemini_api_key");
+                    }
+                    if (customBackendUrl.trim()) {
+                      localStorage.setItem("user_custom_backend_url", customBackendUrl.trim());
+                    } else {
+                      localStorage.removeItem("user_custom_backend_url");
+                    }
+                    setIsSettingsOpen(false);
+                  }}
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[10px] transition duration-150 cursor-pointer shadow-md flex items-center justify-center gap-1.5"
                 >
-                  <Send size={13} />
+                  <span>Save & Apply Settings (محفوظ کریں)</span>
                 </button>
               </div>
+            ) : (
+              <>
+                {/* Chat Messages */}
+                <div
+                  ref={scrollRef}
+                  className="flex-grow p-3 overflow-y-auto space-y-2.5 bg-slate-50 text-slate-800"
+                >
+                  {(messages as any[]).map((m: any) => {
+                    const isAssistant = m.role === "assistant" || m.role === "model";
+                    const messageText = m.text || m.reply || "";
+                    return (
+                      <div
+                        key={m.id || Math.random().toString()}
+                        className={`flex gap-2 max-w-[88%] ${
+                          isAssistant ? "mr-auto text-left" : "ml-auto flex-row-reverse text-right"
+                        }`}
+                      >
+                        {/* Avatars */}
+                        <div
+                          className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 shadow-xs border ${
+                            isAssistant ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-neutral-800 text-neutral-100 border-neutral-700"
+                          }`}
+                        >
+                          {isAssistant ? <Bot size={11} /> : <User size={11} />}
+                        </div>
+
+                        {/* Chat Bubble */}
+                        <div className="space-y-0.5">
+                          <div
+                            className={`p-2.5 rounded-2xl text-[11px] leading-relaxed font-medium ${
+                              isAssistant
+                                ? "bg-white text-slate-800 rounded-tl-none border border-slate-200/50 shadow-2xs"
+                                : "bg-[#25D366] text-white rounded-tr-none text-left shadow-2xs"
+                            }`}
+                            style={{ whiteSpace: "pre-wrap" }}
+                          >
+                            {messageText}
+                          </div>
+                          <span className="text-[7px] text-slate-400 block px-1 mt-0.5">
+                            {m.timestamp}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Loader */}
+                  {loading && (
+                    <div className="flex gap-2 max-w-[80%] mr-auto text-left">
+                      <div className="h-6 w-6 bg-emerald-50 text-emerald-700 rounded-full flex items-center justify-center animate-spin border border-emerald-100">
+                        <RefreshCw size={10} />
+                      </div>
+                      <div className="p-2.5 bg-white text-slate-400 rounded-2xl rounded-tl-none border border-slate-100 text-[11px] shadow-3xs italic">
+                        Analyzing store metrics...
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error Alert */}
+                  {error && (
+                    <div className="p-2.5 bg-rose-50 text-rose-800 rounded-2xl border border-rose-100 text-[11px] flex gap-2 items-start shadow-inner">
+                      <AlertCircle size={12} className="text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Error:</span> {error}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggestions Drawer Pills */}
+                {messages.length < 4 && !loading && (
+                  <div className="px-2.5 py-1.5 bg-slate-50 overflow-x-auto whitespace-nowrap flex gap-1.5 border-t border-slate-100 shrink-0 scrollbar-none">
+                    {suggestions.map((s, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleSendMessage(s)}
+                        className="inline-block py-1 px-2.5 bg-white hover:bg-emerald-50 text-[#128C7E] border border-slate-200 hover:border-[#25D366] rounded-full text-[9px] font-bold duration-150 cursor-pointer shadow-3xs shrink-0"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Footer Input Bar */}
+                {!isOnline ? (
+                  <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-1.5 shrink-0 text-slate-500 font-bold text-[10px]">
+                    <AlertCircle size={12} className="text-amber-500 shrink-0" />
+                    <span>🔌 AI Chatbot is offline. Reconnect to resume.</span>
+                  </div>
+                ) : (
+                  <div className="p-2 border-t border-slate-100 bg-white flex items-end gap-2 shrink-0">
+                    <textarea
+                      ref={textareaRef}
+                      rows={1}
+                      placeholder="Ask about inventory, value..."
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      disabled={loading}
+                      className="flex-grow px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#25D366] rounded-xl text-[11px] duration-150 text-slate-900 resize-none max-h-[120px] overflow-y-auto scrollbar-none"
+                    />
+                    <button
+                      onClick={() => handleSendMessage()}
+                      disabled={loading || !input.trim()}
+                      className="h-8 w-8 bg-[#25D366] hover:bg-[#20ba5a] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition duration-150 shrink-0 cursor-pointer shadow-md self-end"
+                    >
+                      <Send size={13} />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </motion.div>
         )}

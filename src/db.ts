@@ -530,6 +530,10 @@ class DatabaseService {
   }
 
   public getBaseUrl(): string {
+    const customUrl = localStorage.getItem("user_custom_backend_url");
+    if (customUrl && customUrl.trim()) {
+      return customUrl.trim();
+    }
     const origin = window.location.origin;
     if (origin.includes("localhost") || origin.includes(".run.app") || origin.includes("3000")) {
       return "";
