@@ -3,6 +3,7 @@ import { Item, StockMove, ChatMessage } from "../types";
 import { Send, X, Bot, User, RefreshCw, AlertCircle, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { dbService } from "../db";
+import { getLocalFallbackResponse } from "../utils/fallbackChat";
 
 interface ChatBotProps {
   items?: Item[];
@@ -179,8 +180,19 @@ export default function ChatBot({ items: rawItems = [], moves: rawMoves = [], is
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
-      console.error("[ChatBot] Enterprise connection error:", err);
-      setError(err?.message || "Could not connect to the financial server. Please ensure you are online.");
+      console.warn("[ChatBot] Enterprise connection error, falling back to seamless client-side calculations:", err?.message || err);
+      
+      // Calculate local analytical response instantly inside the client browser!
+      const fallbackReply = getLocalFallbackResponse(textToSend, syncedItems);
+
+      const assistantMsg: ChatMessage = {
+        id: generateStableId(),
+        role: "assistant",
+        text: fallbackReply,
+        timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
     } finally {
       setLoading(false);
     }
