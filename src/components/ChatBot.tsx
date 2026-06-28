@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Item, StockMove, ChatMessage } from "../types";
 import { Send, Sparkles, X, Bot, User, RefreshCw, AlertCircle, MessageCircle, Settings, Globe, Key, ArrowLeft } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "framer-motion";
 import { dbService } from "../db";
 
 // Helper to find mentioned product in inventory using robust partial/token matching
@@ -770,12 +770,12 @@ const isSpecificLocalQuery = (userText: string, items: Item[]): boolean => {
 };
 
 interface ChatBotProps {
-  items: Item[];
-  moves: StockMove[];
-  isOnline: boolean;
+  items?: Item[];
+  moves?: StockMove[];
+  isOnline?: boolean;
 }
 
-export default function ChatBot({ items, moves, isOnline }: ChatBotProps) {
+export default function ChatBot({ items = [], moves = [], isOnline = false }: ChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [clientApiKey, setClientApiKey] = useState(() => localStorage.getItem("user_gemini_api_key") || "");
@@ -801,7 +801,7 @@ export default function ChatBot({ items, moves, isOnline }: ChatBotProps) {
   // Auto-expand textarea vertically as user types
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = "32px";
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   }, [input]);
@@ -881,7 +881,7 @@ ${recentTx || "No stock movements recorded in the ledger recently."}
 
     // Add user message to stack
     const userMsg: ChatMessage = {
-      id: Math.random().toString(),
+      id: "msg-" + Date.now(),
       role: "user",
       text: textToSend,
       timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
@@ -976,7 +976,7 @@ Strict Core Guidelines:
             });
           }
 
-          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${clientApiKey.trim()}`;
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${clientApiKey.trim()}`;
           const response = await fetch(geminiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1173,7 +1173,7 @@ Strict Core Guidelines:
 
       // Add assistant response
       const assistantMsg: ChatMessage = {
-        id: Math.random().toString(),
+        id: "msg-" + Date.now(),
         role: "assistant",
         text: replyText,
         timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
@@ -1206,7 +1206,7 @@ Strict Core Guidelines:
       }
 
       const assistantMsg: ChatMessage = {
-        id: Math.random().toString(),
+        id: "msg-" + Date.now(),
         role: "assistant",
         text: fallbackText,
         timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
@@ -1413,7 +1413,7 @@ Strict Core Guidelines:
                     const messageText = m.text || m.reply || "";
                     return (
                       <div
-                        key={m.id || Math.random().toString()}
+                        key={m.id}
                         className={`flex gap-2 max-w-[88%] ${
                           isAssistant ? "mr-auto text-left" : "ml-auto flex-row-reverse text-right"
                         }`}

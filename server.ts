@@ -221,10 +221,9 @@ Strict Core Guidelines:
         });
       }
 
-      // Primary model: gemini-3.5-flash
+      // Primary model: gemini-1.5-flash
       const modelsToTry = [
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite"
+        "gemini-1.5-flash"
       ];
       let response = null;
       let lastError: any = null;
