@@ -24,7 +24,9 @@ export default function Items({
 }: ItemsProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "low" | "out">("all");
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("all");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>(() => {
+    return localStorage.getItem("selected_category_filter") || "all";
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -38,11 +40,16 @@ export default function Items({
         // Fallback
       }
     }
-    return ["Groceries", "Beverages & Dairy", "Boutique Apparel", "Factory Spares", "Hardware Stocks", "General Goods"];
+    return ["خام مال (Raw Materials)", "درمیانی پروڈکٹ (Intermediate Products)", "پیکنگ میٹریل (Packing Materials)", "تیار مال (Finished Goods)", "General Goods"];
   });
 
   // Reload categories if user changes
   useEffect(() => {
+    const filterFromStorage = localStorage.getItem("selected_category_filter");
+    if (filterFromStorage) {
+      setSelectedCategoryFilter(filterFromStorage);
+    }
+    
     const saved = localStorage.getItem(`store_categories_${user.uid}`);
     if (saved) {
       try {
@@ -50,7 +57,7 @@ export default function Items({
         return;
       } catch (e) {}
     }
-    setCategories(["Groceries", "Beverages & Dairy", "Boutique Apparel", "Factory Spares", "Hardware Stocks", "General Goods"]);
+    setCategories(["خام مال (Raw Materials)", "درمیانی پروڈکٹ (Intermediate Products)", "پیکنگ میٹریل (Packing Materials)", "تیار مال (Finished Goods)", "General Goods"]);
   }, [user.uid]);
 
   // Save categories
@@ -244,7 +251,10 @@ Please prepare and dispatch this batch at your earliest convenience. Thank you!`
             {/* Category Filter */}
             <select
               value={selectedCategoryFilter}
-              onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setSelectedCategoryFilter(e.target.value);
+                localStorage.setItem("selected_category_filter", e.target.value);
+              }}
               className="px-3.5 py-3 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl text-xs font-bold outline-none text-slate-700 cursor-pointer"
             >
               <option value="all">📁 All Categories</option>

@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "LocalUser": {
+      "title": "LocalUser",
+      "description": "Information about the registered business/store and its secure PIN.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "storeName": { "type": "string" },
+        "businessType": { "type": "string" },
+        "pinCode": { "type": "string" }
+      },
+      "required": ["uid", "email", "ownerName", "phone", "storeName", "businessType", "pinCode"]
+    },
+    "Item": {
+      "title": "Item",
+      "description": "An inventory item stored in the warehouse/store.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "qty": { "type": "number" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "unit": { "type": "string" },
+        "minQty": { "type": "number" },
+        "reorderQty": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "supplier": { "type": "string" },
+        "brand": { "type": "string" },
+        "location": { "type": "string" },
+        "sku": { "type": "string" },
+        "expiryDate": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "qty", "price", "category", "unit", "minQty", "reorderQty", "costPrice", "userId", "createdAt"]
+    },
+    "StockMove": {
+      "title": "StockMove",
+      "description": "A ledger entry recording a physical stock movement (in or out).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "qty": { "type": "number" },
+        "type": { "type": "string", "enum": ["Stock In", "Stock Out"] },
+        "reason": { "type": "string", "enum": ["Purchase", "Sale", "Adjustment"] },
+        "date": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "itemId", "itemName", "qty", "type", "reason", "date", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{phone}": {
+      "schema": "LocalUser",
+      "description": "Collection of workspaces registered by phone number."
+    },
+    "/items/{itemId}": {
+      "schema": "Item",
+      "description": "All inventory items across all workspaces."
+    },
+    "/stock_moves/{moveId}": {
+      "schema": "StockMove",
+      "description": "All ledger movements across all workspaces."
+    }
+  }
+}

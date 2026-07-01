@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Rules for Users workspace collection (referenced by phone number)
+    match /users/{phone} {
+      allow get: if true; // Needed for workspace PIN lookup
+      allow list: if false; // Block query scraping of all users
+      allow create: if phone.size() <= 32 
+        && request.resource.data.phone == phone
+        && request.resource.data.pinCode is string 
+        && request.resource.data.pinCode.size() == 4;
+      allow update: if phone.size() <= 32
+        && request.resource.data.phone == resource.data.phone;
+      allow delete: if false;
+    }
+
+    // Rules for Items collection
+    match /items/{itemId} {
+      allow read: if true; // Allow reading inventory items
+      allow write: if true; // Allow creating, updating, and deleting items
+    }
+
+    // Rules for Stock Moves ledger collection
+    match /stock_moves/{moveId} {
+      allow read: if true; // Allow reading ledger movements
+      allow write: if true; // Allow writing stock movements
+    }
+  }
+}

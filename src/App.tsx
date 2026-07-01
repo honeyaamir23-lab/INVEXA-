@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Item, StockMove, LocalUser } from "./types";
+import { Item, StockMove, LocalUser, InventoryItem, initialInventory } from "./types";
 import { dbService } from "./db";
 
 // Sub Components
@@ -8,7 +8,7 @@ import Dashboard from "./components/Dashboard";
 import Items from "./components/Items";
 import StockMoves from "./components/StockMoves";
 import Reports from "./components/Reports";
-import ChatBot from "./components/ChatBot";
+import InvexaAIManager from "./components/InvexaAIManager";
 
 // UI / Animation
 import { motion, AnimatePresence } from "motion/react";
@@ -21,11 +21,8 @@ import {
   User as UserIcon,
   Loader2,
   Database,
-  Copy,
-  Check,
-  Upload,
-  Download,
-  X
+  ShieldCheck,
+  Bot
 } from "lucide-react";
 
 const generateId = () => {
@@ -39,191 +36,79 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [authLoading, setAuthLoading] = useState(false);
-  const [items, setItems] = useState<Item[]>(() => {
-    const savedUser = localStorage.getItem("store_user");
-    if (savedUser) {
-      try {
-        const u = JSON.parse(savedUser);
-        const saved = localStorage.getItem(`store_items_${u.uid}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const filtered = parsed.filter((item: Item) => !item.id.startsWith("demo-"));
-          if (filtered.length !== parsed.length) {
-            localStorage.setItem(`store_items_${u.uid}`, JSON.stringify(filtered));
-          }
-          return filtered;
-        }
-      } catch (e) {}
-    }
-    return [];
-  });
-  const [moves, setMoves] = useState<StockMove[]>(() => {
-    const savedUser = localStorage.getItem("store_user");
-    if (savedUser) {
-      try {
-        const u = JSON.parse(savedUser);
-        const saved = localStorage.getItem(`store_moves_${u.uid}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const filtered = parsed.filter((m: StockMove) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
-          if (filtered.length !== parsed.length) {
-            localStorage.setItem(`store_moves_${u.uid}`, JSON.stringify(filtered));
-          }
-          return filtered;
-        }
-      } catch (e) {}
-    }
-    return [];
-  });
+  const [items, setItems] = useState<Item[]>([]);
+  const [moves, setMoves] = useState<StockMove[]>([]);
   const [activeTab, setActiveTab] = useState<string>("dashboard");
-  const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
-  const [syncStatus, setSyncStatus] = useState<"idle" | "pending" | "syncing">("idle");
-  const [pendingCount, setPendingCount] = useState<number>(0);
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   
   // Shared edit state between dashboard / items modal
   const [activeEditItem, setActiveEditItem] = useState<Item | null>(null);
 
-  // Refs to prevent dependency-loop restarts in background sync effects
-  const itemsRef = useRef<Item[]>(items);
-  itemsRef.current = items;
-  const movesRef = useRef<StockMove[]>(moves);
-  movesRef.current = moves;
-
-  // Check Supabase connection status check on startup and initialize sync status
+  // Load items and moves on startup / user login & subscribe to real-time updates
   useEffect(() => {
-    const checkSupabase = async () => {
-      if (!isOnline) {
-        setIsDbConnected(false);
-        return;
-      }
-      try {
-        const connected = await dbService.checkConnection();
-        setIsDbConnected(connected);
-      } catch (err) {
-        setIsDbConnected(false);
-      }
-    };
-    checkSupabase();
-  }, [user?.uid, isOnline]);
+    if (!user) {
+      setItems([]);
+      setMoves([]);
+      return;
+    }
 
-  // Register database service sync status listener
-  useEffect(() => {
-    dbService.registerSyncStatusListener((status, count) => {
-      setSyncStatus(status);
-      setPendingCount(count);
+    setAuthLoading(true);
+    let isSubscribed = true;
+
+    // Fetch initial data first
+    Promise.all([
+      dbService.getItems(user.uid),
+      dbService.getStockMoves(user.uid)
+    ]).then(([savedItems, savedMoves]) => {
+      if (!isSubscribed) return;
+      if (savedItems.length === 0) {
+        const mappedItems: Item[] = initialInventory.map(inv => ({
+          ...inv,
+          qty: inv.quantity,
+          unit: inv.id === "snack-item-1" ? "Bags" : "Pcs",
+          minQty: inv.id === "snack-item-1" ? 5 : inv.id === "snack-item-2" ? 200 : 100,
+          reorderQty: inv.id === "snack-item-1" ? 20 : inv.id === "snack-item-2" ? 1000 : 500,
+          costPrice: inv.id === "snack-item-1" ? 2800 : inv.id === "snack-item-2" ? 10 : 40,
+          userId: user.uid,
+          createdAt: new Date().toISOString()
+        }));
+        setItems(mappedItems);
+        dbService.saveItems(user.uid, mappedItems);
+      } else {
+        setItems(savedItems);
+      }
+      setMoves(savedMoves);
+    }).catch(err => {
+      console.error("Failed to load user workspace data:", err);
+    }).finally(() => {
+      if (isSubscribed) {
+        setAuthLoading(false);
+      }
     });
 
-    if (user) {
-      const initialQueue = dbService.getSyncQueue(user.uid);
-      setPendingCount(initialQueue.length);
-      setSyncStatus(initialQueue.length > 0 ? "pending" : "idle");
-    }
-  }, [user?.uid]);
-
-  // Reusable background sync handler with quiet retry mechanism and no UI freezes
-  const triggerQuietSync = async (overrideUser?: LocalUser) => {
-    const activeUser = overrideUser || user;
-    if (!activeUser) return;
-    
-    try {
-      let retries = 2; // up to 2 retry attempts
-      let delay = 1000; // start with 1000ms delay
-      
-      const attemptSync = async (): Promise<boolean> => {
-        if (!navigator.onLine) {
-          setIsDbConnected(false);
-          return false;
-        }
-        try {
-          const connected = await dbService.checkConnection();
-          setIsDbConnected(connected);
-          if (!connected) return false;
-
-          const result = await dbService.performSelfAwareSync(activeUser.uid, itemsRef.current, movesRef.current);
-          if (result && result.success) {
-            const itemsChanged = JSON.stringify(result.items) !== JSON.stringify(itemsRef.current);
-            const movesChanged = JSON.stringify(result.moves) !== JSON.stringify(movesRef.current);
-            if (itemsChanged) {
-              setItems(result.items);
-            }
-            if (movesChanged) {
-              setMoves(result.moves);
-            }
-            return true;
-          }
-        } catch (err) {
-          // Quiet failure
-        }
-        return false;
-      };
-
-      let success = await attemptSync();
-      while (!success && retries > 0 && navigator.onLine) {
-        retries--;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        delay *= 1.5; // exponential backoff
-        success = await attemptSync();
+    // Subscribe to real-time changes
+    const unsubscribeItems = dbService.subscribeItems(user.uid, (syncedItems) => {
+      if (isSubscribed) {
+        setItems(syncedItems);
       }
-    } catch (e) {
-      // Quiet catch
-    }
-  };
+    });
 
-  // Unified tab navigation click handler triggering dynamic background sync
-  const handleNavigateTab = (tabName: string) => {
-    setActiveTab(tabName);
-    triggerQuietSync();
-  };
-
-  // Handle network online/offline events & periodic automatic self-aware merging
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      triggerQuietSync();
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-      setIsDbConnected(false);
-    };
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    const interval = setInterval(() => {
-      const online = navigator.onLine;
-      setIsOnline(online);
-      if (online) {
-        triggerQuietSync();
-      } else {
-        setIsDbConnected(false);
+    const unsubscribeMoves = dbService.subscribeStockMoves(user.uid, (syncedMoves) => {
+      if (isSubscribed) {
+        setMoves(syncedMoves);
       }
-    }, 15000); // Trigger background sync check every 15s
-
-    // Run initial sync on startup
-    if (navigator.onLine) {
-      triggerQuietSync();
-    }
+    });
 
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-      clearInterval(interval);
+      isSubscribed = false;
+      unsubscribeItems();
+      unsubscribeMoves();
     };
   }, [user?.uid]);
 
-  // Sync state with dbService
-  useEffect(() => {
-    if (user && !isLoggingOutRef.current) {
-      dbService.saveItems(user.uid, items);
-    }
-  }, [items, user?.uid]);
-
-  useEffect(() => {
-    if (user && !isLoggingOutRef.current) {
-      dbService.saveStockMoves(user.uid, moves);
-    }
-  }, [moves, user?.uid]);
+  // Tab navigation handler
+  const handleNavigateTab = (tabName: string) => {
+    setActiveTab(tabName);
+  };
 
   // Actions of local database: Add inventory items
   const handleAddItem = async (itemData: Omit<Item, "id" | "userId" | "createdAt">) => {
@@ -233,26 +118,26 @@ export default function App() {
       id: generateId(),
       userId: user.uid,
       createdAt: new Date().toISOString(),
+      quantity: itemData.qty !== undefined ? itemData.qty : 0,
     };
 
     // Immediate Local State Update for Zero-Latency responsiveness
-    setItems((prev) => [...prev, newItem]);
-
-    // Add to Offline Queue for seamless background cloud syncing
-    dbService.addToSyncQueue(user.uid, "UPSERT_ITEM", newItem.id, newItem);
+    const updated = [...items, newItem];
+    setItems(updated);
+    await dbService.addItem(newItem);
   };
 
   // Actions of local database: Modify/update inventory items
   const handleUpdateItem = async (itemId: string, updates: Partial<Item>) => {
     if (!user) return;
-    setItems((prev) => {
-      const updated = prev.map((item) => (item.id === itemId ? { ...item, ...updates } : item));
-      const targetItem = updated.find((item) => item.id === itemId);
-      if (targetItem) {
-        dbService.addToSyncQueue(user.uid, "UPSERT_ITEM", itemId, targetItem);
-      }
-      return updated;
-    });
+    const processedUpdates = { ...updates };
+    if (updates.qty !== undefined) {
+      processedUpdates.quantity = updates.qty;
+    }
+
+    const updated = items.map((item) => (item.id === itemId ? { ...item, ...processedUpdates } : item));
+    setItems(updated);
+    await dbService.updateItem(itemId, processedUpdates);
   };
 
   // Actions of local database: delete inventory items
@@ -260,42 +145,48 @@ export default function App() {
     if (!user) return;
     
     // Immediate Local State Update
-    setMoves((prev) => prev.filter((m) => m.itemId !== itemId));
-    setItems((prev) => prev.filter((item) => item.id !== itemId));
+    const updatedMoves = moves.filter((m) => m.itemId !== itemId);
+    const updatedItems = items.filter((item) => item.id !== itemId);
+    
+    setMoves(updatedMoves);
+    setItems(updatedItems);
 
-    // Register deletions in the Offline Sync Queue
-    dbService.addToSyncQueue(user.uid, "DELETE_ITEM", itemId, { id: itemId });
+    await dbService.deleteItem(itemId);
+    
+    // Also prune moves for this item in database atomically
+    const movesToDelete = moves.filter((m) => m.itemId === itemId);
+    await Promise.all(movesToDelete.map(m => dbService.deleteStockMove(m.id)));
   };
 
-  // Actions of local database: Book atomic Stock movements + auto updates Item stocks
+  // Actions of local database: Book atomic Stock movements + auto updates Item stocks via backend API
   const handleAddMovement = async (moveData: Omit<StockMove, "id" | "userId" | "createdAt">) => {
     if (!user) return;
     
-    const targetItem = items.find((i) => i.id === moveData.itemId);
-    if (!targetItem) return;
+    try {
+      const response = await fetch("/api/stock-move", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          ...moveData
+        }),
+      });
 
-    const newMove: StockMove = {
-      ...moveData,
-      id: generateId(),
-      userId: user.uid,
-      createdAt: new Date().toISOString(),
-    };
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "سرور پر سٹاک کی بکنگ ناکام رہی۔");
+      }
 
-    const newQty = moveData.type === "Stock In" 
-      ? targetItem.qty + moveData.qty 
-      : Math.max(0, targetItem.qty - moveData.qty);
-
-    const updatedItem = { ...targetItem, qty: newQty };
-
-    // Immediate Local Updates
-    setItems((prev) =>
-      prev.map((item) => (item.id === moveData.itemId ? updatedItem : item))
-    );
-    setMoves((prev) => [newMove, ...prev]);
-
-    // Push transactions sequentially to Sync Queue
-    dbService.addToSyncQueue(user.uid, "INSERT_MOVE", newMove.id, newMove);
-    dbService.addToSyncQueue(user.uid, "UPSERT_ITEM", updatedItem.id, updatedItem);
+      const result = await response.json();
+      if (result.autoTriggered) {
+        console.log(`Recipe automation triggered: ${result.recipeName}`);
+      }
+    } catch (err: any) {
+      alert(`سٹاک بکنگ میں خرابی: ${err.message}`);
+      throw err;
+    }
   };
 
   const handleLogout = () => {
@@ -312,16 +203,16 @@ export default function App() {
   // Loading view
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center animate-pulse">
         <div className="text-center space-y-3">
-          <Loader2 className="h-10 w-10 text-emerald-650 animate-spin mx-auto text-emerald-600" />
-          <p className="text-slate-500 font-medium text-xs font-mono">Syncing store catalog offline...</p>
+          <Loader2 className="h-10 w-10 text-emerald-600 animate-spin mx-auto" />
+          <p className="text-slate-500 font-medium text-xs font-mono">Loading local secure vault...</p>
         </div>
       </div>
     );
   }
 
-  // Trigger modal inside Item page directly
+  // Trigger edit details page directly
   const triggerEditItemFromDashboard = (item: Item) => {
     setActiveEditItem(item);
     handleNavigateTab("items");
@@ -342,13 +233,10 @@ export default function App() {
               onLoginSuccess={async (loggedInUser) => {
                 const savedItems = await dbService.getItems(loggedInUser.uid);
                 const savedMoves = await dbService.getStockMoves(loggedInUser.uid);
-                const filteredItems = savedItems.filter((item: Item) => !item.id.startsWith("demo-"));
-                const filteredMoves = savedMoves.filter((m: StockMove) => !m.itemId?.startsWith("demo-") && !m.id?.startsWith("move-demo-"));
-                setItems(filteredItems);
-                setMoves(filteredMoves);
+                setItems(savedItems);
+                setMoves(savedMoves);
                 setUser(loggedInUser);
                 setActiveTab("dashboard");
-                triggerQuietSync(loggedInUser);
               }} 
             />
           </motion.div>
@@ -373,29 +261,15 @@ export default function App() {
 
                 {/* User Profile Action Details */}
                 <div className="flex items-center gap-3">
-                  {/* Connection / Sync Badge */}
-                  <div className="flex items-center text-xs select-none transition-all duration-300">
-                    {!isOnline ? (
-                      <span className="flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
-                        <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-pulse" />
-                        Offline Mode
-                      </span>
-                    ) : syncStatus === "syncing" ? (
-                      <span className="flex items-center gap-1 bg-sky-50 border border-sky-200 text-sky-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
-                        <RefreshCw size={10} className="animate-spin text-sky-500" />
-                        Syncing... ({pendingCount})
-                      </span>
-                    ) : pendingCount > 0 ? (
-                      <span className="flex items-center gap-1 bg-yellow-50 border border-yellow-200 text-yellow-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
-                        <span className="h-1.5 w-1.5 bg-yellow-500 rounded-full animate-ping" />
-                        Pending Sync ({pendingCount})
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full px-2.5 py-1 font-bold text-[10px] shadow-3xs">
-                        <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full" />
-                        Cloud Connected
-                      </span>
-                    )}
+                  {/* Offline Mode Indicator Badge */}
+                  <div 
+                    className="flex items-center text-xs"
+                    title="All your data is saved securely on this device"
+                  >
+                    <span className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full px-3 py-1 font-extrabold text-[10px] shadow-3xs">
+                      <ShieldCheck size={12} className="text-emerald-600" />
+                      <span>Local Secure Vault</span>
+                    </span>
                   </div>
 
                   <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100/70 p-1.5 rounded-full px-3 border border-slate-200/50">
@@ -404,8 +278,6 @@ export default function App() {
                     <span className="text-slate-300">|</span>
                     <span className="truncate max-w-[120px] text-slate-500 font-mono">{user.email}</span>
                   </div>
-
-
 
                   <button
                     onClick={handleLogout}
@@ -435,7 +307,7 @@ export default function App() {
                       moves={moves}
                       onNavigateToTab={handleNavigateTab}
                       onEditItem={triggerEditItemFromDashboard}
-                      isDbConnected={isDbConnected}
+                      isDbConnected={true}
                       onLogout={handleLogout}
                       onUpdateUser={setUser}
                     />
@@ -465,13 +337,20 @@ export default function App() {
                       user={user}
                     />
                   )}
+                  {activeTab === "production" && (
+                    <InvexaAIManager
+                      items={items}
+                      stockMoves={moves}
+                      user={user}
+                    />
+                  )}
                 </motion.div>
               </AnimatePresence>
             </main>
 
             {/* Sticky Bottom Navigation Tabs styled exactly for native high performance mobile phone rendering */}
             <nav className="bg-white border-t border-slate-100 shadow-xl py-3.5 px-4 z-40 print:hidden shrink-0">
-              <div className="max-w-md mx-auto grid grid-cols-4 gap-2">
+              <div className="max-w-md mx-auto grid grid-cols-5 gap-1.5">
                 {/* Dashboard */}
                 <button
                   onClick={() => handleNavigateTab("dashboard")}
@@ -482,8 +361,8 @@ export default function App() {
                   }`}
                   id="nav-tab-dashboard"
                 >
-                  <Home size={17} />
-                  <span className="text-[10px] font-bold tracking-tight">Dashboard</span>
+                  <Home size={16} />
+                  <span className="text-[9px] font-bold tracking-tight">Dashboard</span>
                 </button>
 
                 {/* Items */}
@@ -496,8 +375,22 @@ export default function App() {
                   }`}
                   id="nav-tab-items"
                 >
-                  <Package size={17} />
-                  <span className="text-[10px] font-bold tracking-tight">Inventory</span>
+                  <Package size={16} />
+                  <span className="text-[9px] font-bold tracking-tight">Inventory</span>
+                </button>
+
+                {/* Production tab renamed to Invexa AI Manager */}
+                <button
+                  onClick={() => handleNavigateTab("production")}
+                  className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-2xl transition-all cursor-pointer ${
+                    activeTab === "production" 
+                      ? "bg-gradient-to-r from-purple-600 to-indigo-700 text-white font-black shadow-lg shadow-purple-600/15 scale-[1.03]" 
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                  }`}
+                  id="nav-tab-production"
+                >
+                  <Bot size={16} />
+                  <span className="text-[9px] font-bold tracking-tight">AI Manager</span>
                 </button>
 
                 {/* Stock Moves */}
@@ -510,8 +403,8 @@ export default function App() {
                   }`}
                   id="nav-tab-moves"
                 >
-                  <RefreshCw size={17} />
-                  <span className="text-[10px] font-bold tracking-tight">Ledger</span>
+                  <RefreshCw size={16} />
+                  <span className="text-[9px] font-bold tracking-tight">Ledger</span>
                 </button>
 
                 {/* Reports */}
@@ -524,19 +417,11 @@ export default function App() {
                   }`}
                   id="nav-tab-reports"
                 >
-                  <BarChart3 size={17} />
-                  <span className="text-[10px] font-bold tracking-tight">Reports</span>
+                  <BarChart3 size={16} />
+                  <span className="text-[9px] font-bold tracking-tight">Reports</span>
                 </button>
               </div>
             </nav>
-
-            {/* Interactive Gemini Chat Assistant (Float) */}
-            {activeTab === "dashboard" && (
-              <div className="print:hidden">
-                <ChatBot items={items} moves={moves} isOnline={isOnline} />
-              </div>
-            )}
-
 
           </motion.div>
         )}

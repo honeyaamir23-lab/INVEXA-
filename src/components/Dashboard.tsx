@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Item, StockMove, LocalUser } from "../types";
-import { AlertCircle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X, User as UserIcon, Calendar, Briefcase, Check, Copy } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowUpRight, ArrowDownLeft, RefreshCw, Send, Database, LogOut, Settings, Plus, X, User as UserIcon, Calendar, Briefcase, Check, Copy, Cpu } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { dbService } from "../db";
 
@@ -29,6 +29,28 @@ export default function Dashboard({ items, moves, onNavigateToTab, onEditItem, i
   const recentMoves = [...moves]
     .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 4);
+
+  // Screen 5: Stock summary stats per category
+  const categoryStats = React.useMemo(() => {
+    const rawItems = items.filter(i => i.category.includes("خام مال") || i.category.includes("Raw"));
+    const intermediateItems = items.filter(i => i.category.includes("درمیانی") || i.category.includes("Intermediate"));
+    const packingItems = items.filter(i => i.category.includes("پیکنگ") || i.category.includes("Packing") || i.category.includes("Packaging"));
+    const finishedItems = items.filter(i => i.category.includes("تیار") || i.category.includes("Finished"));
+
+    const calc = (list: typeof items) => {
+      const count = list.length;
+      const value = list.reduce((acc, item) => acc + (item.qty * (item.price || item.costPrice || 0)), 0);
+      const lowCount = list.filter(item => item.qty <= item.minQty).length;
+      return { count, value, lowCount };
+    };
+
+    return {
+      raw: { ...calc(rawItems), name: "خام مال (Raw Materials)" },
+      intermediate: { ...calc(intermediateItems), name: "درمیانی پروڈکٹ (Intermediate Products)" },
+      packing: { ...calc(packingItems), name: "پیکنگ میٹریل (Packing Materials)" },
+      finished: { ...calc(finishedItems), name: "تیار مال (Finished Goods)" }
+    };
+  }, [items]);
 
   // Today's date nicely formatted in English
   const today = new Date();
@@ -72,6 +94,7 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [showAdvancedSetup, setShowAdvancedSetup] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [isAutomationOpen, setIsAutomationOpen] = useState(false);
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
@@ -283,22 +306,31 @@ Please prepare this delivery at your earliest convenience. Thank you!`;
                       key={item.id} 
                       className={`p-3.5 rounded-xl border transition duration-150 ${
                         isCritical 
-                        ? "bg-rose-50/10 border-rose-100/60 hover:bg-rose-50/20" 
-                        : "bg-amber-50/10 border-amber-100/60 hover:bg-amber-50/20"
+                        ? "bg-rose-50/20 border-rose-250 hover:bg-rose-50/30" 
+                        : "bg-amber-50/25 border-amber-250 hover:bg-amber-50/35"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <h4 className="font-bold text-slate-900 text-sm truncate">{item.name}</h4>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Min Alert limit: {item.minQty} {item.unit} | Suggested: {item.reorderQty} {item.unit}
+                          <h4 className="font-extrabold text-sm truncate flex items-center gap-1.5">
+                            {isCritical ? (
+                              <AlertCircle size={15} className="text-rose-600 shrink-0" />
+                            ) : (
+                              <AlertTriangle size={15} className="text-amber-600 shrink-0 animate-bounce" style={{ animationDuration: '2s' }} />
+                            )}
+                            <span className={isCritical ? "text-rose-600" : "text-amber-800"}>
+                              {item.name}
+                            </span>
+                          </h4>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Min Alert limit: <span className="font-semibold text-slate-700">{item.minQty}</span> {item.unit} | Suggested: <span className="font-semibold text-slate-700">{item.reorderQty}</span> {item.unit}
                           </p>
                         </div>
                         <div className="text-right shrink-0">
-                          <span className={`text-sm font-bold block font-display ${isCritical ? "text-rose-600" : "text-amber-600"}`}>
+                          <span className={`text-sm font-black block font-display ${isCritical ? "text-rose-600 animate-pulse" : "text-amber-600"}`}>
                             {item.qty} {item.unit}
                           </span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">Rs {item.price}/unit</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">Rs {item.price}/unit</span>
                         </div>
                       </div>
 
